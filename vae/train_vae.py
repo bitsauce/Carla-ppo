@@ -37,8 +37,6 @@ if __name__ == "__main__":
             filepath = os.path.join(args.dataset, filename)
             frame = preprocess_frame(np.asarray(Image.open(filepath)))
             images.append(frame)
-            print(frame.shape)
-            eixt()
     images = np.stack(images, axis=0)
     
     np.random.seed(0)
