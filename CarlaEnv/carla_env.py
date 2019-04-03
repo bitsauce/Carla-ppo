@@ -194,7 +194,7 @@ class CarlaEnv(gym.Env):
         self.viewer_image = image
 
 if __name__ == "__main__":
-    def reward_fn(env):
+    def reward_fn2(env):
         terminal_state = env.terminal_state
 
         # If speed is less than 1 after 5s, stop
@@ -236,6 +236,89 @@ if __name__ == "__main__":
             "Wrong way" if (np.rad2deg(angle) > 90 or np.rad2deg(angle) < -90) else "Right way",
             "Reward: %.4f" % reward
         ]
+        return reward
+
+    def reward_fn(env):
+        terminal_state = env.terminal_state
+
+        # If speed is less than 1 after 5s, stop
+        speed = env.vehicle.get_speed()
+        if time.time() - env.start_t > 5.0 and speed < 1.0:
+            terminal_state = True
+
+        # If heading is oposite, stop
+        transform = env.vehicle.get_transform()
+        waypoint = env.world.map.get_waypoint(transform.location, project_to_road=True) # Get closest waypoint
+        #world.debug.draw_point(wp_loc, life_time=1.0)
+        loc, wp_loc = carla_as_array(waypoint.transform.location), carla_as_array(transform.location)
+        distance_from_center = np.linalg.norm(loc[:2] - wp_loc[:2])
+
+        fwd = transform.rotation.get_forward_vector()
+        wp_fwd = waypoint.transform.rotation.get_forward_vector()
+        angle = angle_diff(carla_as_array(fwd), carla_as_array(wp_fwd))
+
+        if angle > np.pi/2 or angle < -np.pi/2 or distance_from_center > 3.0:
+            terminal_state = True
+
+        """reward = 0
+        if terminal_state == True:
+            env.terminal_state = True
+            reward -= 10
+        else:
+            #if 3.6 * speed < 20.0: # No reward over 20 kmh
+            #    reward += env.vehicle.control.throttle
+            norm_speed = 3.6 * speed / 20.0
+            if norm_speed > 1.0:
+                #reward += (1.0 - norm_speed) * 3
+                reward += (1.0 - env.vehicle.control.throttle) * 3
+            else:
+                #reward += norm_speed * 3
+                reward += env.vehicle.control.throttle * 3
+            reward -= distance_from_center"""
+
+        """reward = 0
+        if terminal_state == True:
+            env.terminal_state = True
+            reward -= 1#10
+        else:
+            norm_speed = 3.6 * speed / 20.0
+
+            # reward v2
+            # s | t | r
+            # 0 | 0 | 0
+            # 1 | 0 | 0
+            # 1 | 1 | 0
+            # 0 | 1 | 1
+            # 2 | 1 | -1
+            # 0 | .5| .5
+            # .5| .5| 0.25
+
+            # t - s*t = t(1-s)
+
+            reward += env.vehicle.control.throttle * (1 - norm_speed) * 5
+            reward -= distance_from_center"""
+
+        reward = 0
+        if False:
+            env.terminal_state = True
+            reward -= 10
+        else:
+            norm_speed = 3.6 * speed / (20.0/2.0)
+
+            # reward v3
+
+
+            # t - s*t = t(1-s)
+
+            reward += np.minimum(norm_speed, 2.0 - norm_speed)
+            reward -= distance_from_center
+
+        env.extra_info.extend([
+            "Distance from center: %.2f" % distance_from_center,
+            "Angle difference: %.2f" % np.rad2deg(angle),
+            "Wrong way" if (np.rad2deg(angle) > 90 or np.rad2deg(angle) < -90) else "Right way",
+            "Reward: %.4f" % reward
+        ])
         return reward
 
     from pygame.locals import *

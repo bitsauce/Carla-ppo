@@ -33,9 +33,9 @@ def reward_fn_1(env):
 def reward_fn(env):
     terminal_state = env.terminal_state
 
-    # If speed is less than 1 after 5s, stop
+    # If speed is less than 1 after 1m, stop
     speed = env.vehicle.get_speed()
-    if time.time() - env.start_t > 5.0 and speed < 1.0:
+    if time.time() - env.start_t > 60.0 and speed < 1.0:
         terminal_state = True
 
     # If heading is oposite, stop
@@ -52,7 +52,7 @@ def reward_fn(env):
     if angle > np.pi/2 or angle < -np.pi/2 or distance_from_center > 3.0:
         terminal_state = True
 
-    reward = 0
+    """reward = 0
     if terminal_state == True:
         env.terminal_state = True
         reward -= 10
@@ -61,10 +61,49 @@ def reward_fn(env):
         #    reward += env.vehicle.control.throttle
         norm_speed = 3.6 * speed / 20.0
         if norm_speed > 1.0:
-            reward += (1.0 - norm_speed) * 3
+            #reward += (1.0 - norm_speed) * 3
+            reward += (1.0 - env.vehicle.control.throttle) * 3
         else:
-            reward += norm_speed * 3
-        reward -= distance_from_center
+            #reward += norm_speed * 3
+            reward += env.vehicle.control.throttle * 3
+        reward -= distance_from_center"""
+
+    """reward = 0
+    if terminal_state == True:
+        env.terminal_state = True
+        reward -= 1#10
+    else:
+        norm_speed = 3.6 * speed / 20.0
+
+        # reward v2
+        # s | t | r
+        # 0 | 0 | 0
+        # 1 | 0 | 0
+        # 1 | 1 | 0
+        # 0 | 1 | 1
+        # 2 | 1 | -1
+        # 0 | .5| .5
+        # .5| .5| 0.25
+
+        # t - s*t = t(1-s)
+
+        reward += env.vehicle.control.throttle * (1 - norm_speed) * 5
+        reward -= distance_from_center"""
+
+    reward = 0
+    if terminal_state == True:
+        env.terminal_state = True
+        reward -= 10
+    else:
+        norm_speed = 3.6 * speed / (20.0/2.0)
+
+        # reward v3
+
+
+        # t - s*t = t(1-s)
+
+        reward += np.minimum(norm_speed, 2.0 - norm_speed)
+        reward += (3.0 - distance_from_center) / 3.0 * 0.5
 
     env.extra_info.extend([
         "Distance from center: %.2f" % distance_from_center,
@@ -245,7 +284,9 @@ def train(params, model_name, save_interval=10, eval_interval=10, record_eval=Tr
 
                 # Perform action
                 env.extra_info.append("Episode {}".format(episode_idx))
-                env.extra_info.append("Training...".format(episode_idx))
+                env.extra_info.append("Training...")
+                env.extra_info.append("")
+                env.extra_info.append("Value {}".format(value))
                 env.extra_info.append("")
                 new_state, reward, terminal_state, info = env.step(action)
 

@@ -111,9 +111,6 @@ class HUD(object):
                     ("Hand brake:", c.hand_brake),
                     ("Manual:", c.manual_gear_shift),
                     "Gear:        %s" % {-1: "R", 0: "N"}.get(c.gear, c.gear),
-                    "",
-                    "Collision:",
-                    collision,
                     ""
                 ])
 
