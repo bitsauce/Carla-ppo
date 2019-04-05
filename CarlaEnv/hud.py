@@ -8,7 +8,6 @@ Use ARROWS or WASD keys for control.
     AD           : steer
     Q            : toggle reverse
     Space        : hand-brake
-    P            : toggle autopilot
     M            : toggle manual transmission
     ,/.          : gear up/down
 
@@ -28,7 +27,7 @@ Use ARROWS or WASD keys for control.
 import pygame
 import datetime
 import math
-from utils import get_actor_display_name
+from wrappers import get_actor_display_name
 
 #===============================================================================
 # HUD
@@ -60,71 +59,60 @@ class HUD(object):
         self.show_info = True
         self.info_text = []
         self.server_clock = pygame.time.Clock()
+        self.vehicle = None
+
+    def set_vehicle(self, vehicle):
+        self.vehicle = vehicle
 
     def tick(self, world, clock):
         if self.show_info:
-            # Get transform, velocity and heading
-            t = world.vehicle.get_transform()
-            v = world.vehicle.get_velocity()
-            c = world.vehicle.get_control()
-            heading = "N" if abs(t.rotation.yaw) < 89.5 else ""
-            heading += "S" if abs(t.rotation.yaw) > 90.5 else ""
-            heading += "E" if 179.5 > t.rotation.yaw > 0.5 else ""
-            heading += "W" if -0.5 > t.rotation.yaw > -179.5 else ""
-
-            # Get collision history for the last 200 frames
-            colhist = world.collision_sensor.get_collision_history()
-            collision = [colhist[x + self.frame_number - 200] for x in range(0, 200)]
-            max_col = max(1.0, max(collision)) # 1 if max(collision) < 1 else max(collision)
-            collision = [x / max_col for x in collision]
-
             # Get all world vehicles
             vehicles = world.get_actors().filter("vehicle.*")
 
-            # Create info text
+            # General simulation info
             self.info_text = [
-                "Images:  % 16i    " % world.recording_camera.num_images,
                 "Server:  % 16d FPS" % self.server_fps,
                 "Client:  % 16d FPS" % clock.get_fps(),
                 "",
-                "Vehicle: % 20s" % get_actor_display_name(world.vehicle, truncate=20),
                 "Map:     % 20s" % world.map.name,
-                "Simulation time: % 12s" % datetime.timedelta(seconds=int(self.simulation_time)),
-                "",
-                "Speed:   % 15.0f km/h" % (3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)),
-                u"Heading:% 16.0f\N{DEGREE SIGN} % 2s" % (t.rotation.yaw, heading),
-                "Location:% 20s" % ("(% 5.1f, % 5.1f)" % (t.location.x, t.location.y)),
-                "Height:  % 18.0f m" % t.location.z,
-                "",
-                ("Throttle:", c.throttle, 0.0, 1.0),
-                ("Steer:", c.steer, -1.0, 1.0),
-                ("Brake:", c.brake, 0.0, 1.0),
-                ("Reverse:", c.reverse),
-                ("Hand brake:", c.hand_brake),
-                ("Manual:", c.manual_gear_shift),
-                "Gear:        %s" % {-1: "R", 0: "N"}.get(c.gear, c.gear),
-                "",
-                "Collision:",
-                collision,
-                "",
+                #"Simulation time: % 12s" % datetime.timedelta(seconds=int(self.simulation_time)),
                 "Number of vehicles: % 8d" % len(vehicles)
             ]
 
-            # Append info about nearby vehicles
-            if len(vehicles) > 1:
-                self.info_text += ["Nearby vehicles:"]
-                distance = lambda l: math.sqrt((l.x - t.location.x)**2 + (l.y - t.location.y)**2 + (l.z - t.location.z)**2)
-                vehicles = [(distance(x.get_location()), x) for x in vehicles if x.id != world.vehicle.id]
-                for d, vehicle in sorted(vehicles):
-                    if d > 200.0:
-                        break
-                    vehicle_type = get_actor_display_name(vehicle, truncate=22)
-                    self.info_text.append("% 4dm %s" % (d, vehicle_type))
-
+            # Show info of attached vehicle
+            if self.vehicle is not None:
+                # Get transform, velocity and heading
+                t = self.vehicle.get_transform()
+                v = self.vehicle.get_velocity()
+                c = self.vehicle.get_control()
+                heading = "N" if abs(t.rotation.yaw) < 89.5 else ""
+                heading += "S" if abs(t.rotation.yaw) > 90.5 else ""
+                heading += "E" if 179.5 > t.rotation.yaw > 0.5 else ""
+                heading += "W" if -0.5 > t.rotation.yaw > -179.5 else ""
+                
+                self.info_text.extend([
+                    "Vehicle: % 20s" % get_actor_display_name(self.vehicle, truncate=20),
+                    "",
+                    "Speed:   % 15.0f km/h" % (3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)),
+                    u"Heading:% 16.0f\N{DEGREE SIGN} % 2s" % (t.rotation.yaw, heading),
+                    "Location:% 20s" % ("(% 5.1f, % 5.1f)" % (t.location.x, t.location.y)),
+                    "Height:  % 18.0f m" % t.location.z,
+                    "",
+                    ("Throttle:", c.throttle, 0.0, 1.0),
+                    ("Steer:", c.steer, -1.0, 1.0),
+                    ("Brake:", c.brake, 0.0, 1.0),
+                    ("Reverse:", c.reverse),
+                    ("Hand brake:", c.hand_brake),
+                    ("Manual:", c.manual_gear_shift),
+                    "Gear:        %s" % {-1: "R", 0: "N"}.get(c.gear, c.gear)
+                ])
+            else:
+                self.info_text.append("Vehicle: % 20s" % "None")
+            
         # Tick notifications
         self.notifications.tick(world, clock)
 
-    def render(self, display):
+    def render(self, display, extra_info=[]):
         if self.show_info:
             info_surface = pygame.Surface((220, self.dim[1]))
             info_surface.set_alpha(100)
@@ -132,6 +120,8 @@ class HUD(object):
             v_offset = 4
             bar_h_offset = 100
             bar_width = 106
+            self.info_text.append("")
+            self.info_text.extend(extra_info)
             for item in self.info_text:
                 if v_offset + 18 > self.dim[1]:
                     break

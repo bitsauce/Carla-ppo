@@ -1,0 +1,8 @@
+TODO:
+- Run old reward functions again for comparison
+- Try to train a model where we repeat the hard parts instead of resetting to start
+- Measure length of track
+- Do some analysis of putting noise on the horizon
+  - Might have to fix loading logic
+- Train VAE directly on semantic map of road and lane lines (no buildings)
+  - Compare performance. Hypothesis: Should drive better as vae does not care about buildings

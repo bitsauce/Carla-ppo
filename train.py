@@ -31,26 +31,32 @@ def reward_fn_1(env):
     return reward
 
 def reward_fn(env):
-    terminal_state = env.terminal_state
+    reward = 0
+    terminal_reason = "Running..."
 
-    # If speed is less than 1 after 1m, stop
+    # If speed is less than 1.0 km/h after 5s, stop
     speed = env.vehicle.get_speed()
-    if time.time() - env.start_t > 60.0 and speed < 1.0:
-        terminal_state = True
+    if time.time() - env.start_t > 5.0 and speed < 1.0 / 3.6:
+        env.terminal_state = True
+        terminal_reason = "Vehicle stopped"
 
-    # If heading is oposite, stop
+    # Get angle difference between closest waypoint and vehicle forward vector
     transform = env.vehicle.get_transform()
-    waypoint = env.world.map.get_waypoint(transform.location, project_to_road=True) # Get closest waypoint
-    #world.debug.draw_point(wp_loc, life_time=1.0)
-    loc, wp_loc = carla_as_array(waypoint.transform.location), carla_as_array(transform.location)
-    distance_from_center = np.linalg.norm(loc[:2] - wp_loc[:2])
-
     fwd = transform.rotation.get_forward_vector()
-    wp_fwd = waypoint.transform.rotation.get_forward_vector()
+    wp_fwd = env.closest_waypoint.transform.rotation.get_forward_vector()
     angle = angle_diff(carla_as_array(fwd), carla_as_array(wp_fwd))
 
-    if angle > np.pi/2 or angle < -np.pi/2 or distance_from_center > 3.0:
-        terminal_state = True
+    # If heading is opposite, stop
+    if angle > np.pi/2 or angle < -np.pi/2:
+        env.terminal_state = True
+        terminal_reason = "Wrong way"
+        reward -= 10
+
+    # If distance from center > 3, stop
+    if env.distance_from_center > 3.0:
+        env.terminal_state = True
+        terminal_reason = "Off-track"
+        reward -= 10
 
     """reward = 0
     if terminal_state == True:
@@ -90,54 +96,47 @@ def reward_fn(env):
         reward += env.vehicle.control.throttle * (1 - norm_speed) * 5
         reward -= distance_from_center"""
 
-    reward = 0
-    if terminal_state == True:
-        env.terminal_state = True
-        reward -= 10
-    else:
+    if not env.terminal_state:
         norm_speed = 3.6 * speed / (20.0/2.0)
 
         # reward v3
 
-
         # t - s*t = t(1-s)
 
         reward += np.minimum(norm_speed, 2.0 - norm_speed)
-        reward += (3.0 - distance_from_center) / 3.0 * 0.5
+        reward += (3.0 - env.distance_from_center) / 3.0 * 0.5
 
+    # 29 chars
     env.extra_info.extend([
-        "Distance from center: %.2f" % distance_from_center,
-        "Angle difference: %.2f" % np.rad2deg(angle),
-        "Wrong way" if (np.rad2deg(angle) > 90 or np.rad2deg(angle) < -90) else "Right way",
-        "Reward: %.4f" % reward
+        "Center deviance:  % 9.2fm" % env.distance_from_center,
+       u"Angle difference: % 9.2f\N{DEGREE SIGN}" % np.rad2deg(angle),
+        "Reward:           % 9.2f" % reward,
+        terminal_reason,
+        ""
     ])
     return reward
 
 def create_encode_state_fn(vae):
+    """
+        Returns a function that encodes the current state of
+        the environment into some feature vector.
+    """
     def encode_state(env):
-        """
-            Function that encodes the current state of
-            the environment into some feature vector.
-        """
+        # Encode image with VAE
         frame = preprocess_frame(env.observation)
         encoded_state = vae.encode([frame])[0]
         
+        # Append steering, throttle and speed
         measurements = []
         measurements.append(env.vehicle.control.steer)
         measurements.append(env.vehicle.control.throttle)
         measurements.append(env.vehicle.get_speed())
-        
         encoded_state = np.append(encoded_state, measurements)
         
         return encoded_state
     return encode_state
 
-def make_env(title=None, frame_skip=0, encode_state_fn=None):
-    env = CarlaEnv(obs_res=(160, 80), encode_state_fn=encode_state_fn, reward_fn=reward_fn)
-    env.seed(0)
-    return env
-
-def test_agent(test_env, model, video_filename=None):
+def run_eval(test_env, model, video_filename=None):
     # Init test env
     state, terminal, total_reward = test_env.reset(), False, 0
     rendered_frame = test_env.render(mode="rgb_array")
@@ -175,8 +174,8 @@ def test_agent(test_env, model, video_filename=None):
 
     if info["closed"] == True:
         exit(0)
-    
-    return total_reward, 0#test_env.reward
+
+    return total_reward
 
 def train(params, model_name, save_interval=10, eval_interval=10, record_eval=True, restart=False):
     # Traning parameters
@@ -222,8 +221,8 @@ def train(params, model_name, save_interval=10, eval_interval=10, record_eval=Tr
 
     # Create env
     print("Creating environment")
-    env      = make_env(model_name, frame_skip=0, encode_state_fn=encode_state_fn)
-    #test_env = make_env(model_name + " (Test)", encode_state_fn=encode_state_fn)
+    env = CarlaEnv(obs_res=(160, 80), encode_state_fn=encode_state_fn, reward_fn=reward_fn)
+    env.seed(0)
 
     # Environment constants
     input_shape  = np.array([vae_z_dim])
@@ -268,12 +267,16 @@ def train(params, model_name, save_interval=10, eval_interval=10, record_eval=Tr
         # Run evaluation periodically
         if episode_idx % eval_interval == 0:
             video_filename = os.path.join(model.video_dir, "episode{}.avi".format(episode_idx))
-            eval_reward, eval_score = test_agent(env, model, video_filename=video_filename)
-            model.write_value_to_summary("eval/score",  eval_score,  episode_idx)
+            eval_reward = run_eval(env, model, video_filename=video_filename)
             model.write_value_to_summary("eval/reward", eval_reward, episode_idx)
+            model.write_value_to_summary("eval/distance_traveled", env.distance_traveled, episode_idx)
+            model.write_value_to_summary("eval/average_speed", 3.6 * env.speed_accum / env.step_count, episode_idx)
+            model.write_value_to_summary("eval/center_lane_deviation", env.center_lane_deviation, episode_idx)
+            model.write_value_to_summary("eval/average_center_lane_deviation", env.center_lane_deviation / env.step_count, episode_idx)
+            model.write_value_to_summary("eval/distance_over_deviation", env.distance_traveled / env.center_lane_deviation, episode_idx)
 
         # Reset environment
-        state, terminal_state, total_reward, total_value = env.reset(), False, 0, 0
+        state, terminal_state, total_reward = env.reset(), False, 0
         
         # While episode not done
         print(f"Episode {episode_idx} (Step {model.get_train_step_idx()})")
@@ -283,11 +286,13 @@ def train(params, model_name, save_interval=10, eval_interval=10, record_eval=Tr
                 action, value = model.predict([state], write_to_summary=True)
 
                 # Perform action
-                env.extra_info.append("Episode {}".format(episode_idx))
-                env.extra_info.append("Training...")
-                env.extra_info.append("")
-                env.extra_info.append("Value {}".format(value))
-                env.extra_info.append("")
+                env.extra_info.extend([
+                    "Episode {}".format(episode_idx),
+                    "Training...",
+                    "",
+                    "Value: % 20.2f" % value,
+                    ""
+                ])
                 new_state, reward, terminal_state, info = env.step(action)
 
                 if info["closed"] == True:
@@ -346,9 +351,12 @@ def train(params, model_name, save_interval=10, eval_interval=10, record_eval=Tr
                                 returns[mb_idx], advantages[mb_idx])
 
         # Write episodic values
-        model.write_value_to_summary("train/score", 0, episode_idx)
         model.write_value_to_summary("train/reward", total_reward, episode_idx)
-        model.write_value_to_summary("train/value", total_value, episode_idx)
+        model.write_value_to_summary("train/distance_traveled", env.distance_traveled, episode_idx)
+        model.write_value_to_summary("train/average_speed", 3.6 * env.speed_accum / env.step_count, episode_idx)
+        model.write_value_to_summary("train/center_lane_deviation", env.center_lane_deviation, episode_idx)
+        model.write_value_to_summary("train/average_center_lane_deviation", env.center_lane_deviation / env.step_count, episode_idx)
+        model.write_value_to_summary("train/distance_over_deviation", env.distance_traveled / env.center_lane_deviation, episode_idx)
         model.write_episodic_summaries()
 
 if __name__ == "__main__":

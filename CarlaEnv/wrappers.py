@@ -9,12 +9,13 @@ import pygame
 
 def print_transform(transform):
     print("Location(x={:.2f}, y={:.2f}, z={:.2f}) Rotation(pitch={:.2f}, yaw={:.2f}, roll={:.2f})".format(
-        transform.location.x,
-        transform.location.y,
-        transform.location.z,
-        transform.rotation.pitch,
-        transform.rotation.yaw,
-        transform.rotation.roll)
+            transform.location.x,
+            transform.location.y,
+            transform.location.z,
+            transform.rotation.pitch,
+            transform.rotation.yaw,
+            transform.rotation.roll
+        )
     )
 
 def get_actor_display_name(actor, truncate=250):
@@ -29,10 +30,16 @@ def angle_diff(v0, v1):
     return angle
 
 def carla_as_array(v):
+    """ Turn carla Location/Vector3D/Rotation to np.array """
     if isinstance(v, carla.Location) or isinstance(v, carla.Vector3D):
         return np.array([v.x, v.y, v.z])
     elif isinstance(v, carla.Rotation):
         return np.array([v.pitch, v.yaw, v.roll])
+
+camera_transforms = {
+    "spectator": carla.Transform(carla.Location(x=-5.5, z=2.8), carla.Rotation(pitch=-15)),
+    "dashboard": carla.Transform(carla.Location(x=1.6, z=1.7))
+}
 
 #===============================================================================
 # CarlaActorBase
@@ -85,25 +92,11 @@ class CollisionSensor(CarlaActorBase):
 
         super().__init__(world, actor)
 
-    def get_collision_history(self):
-        # Return collision history
-        history = collections.defaultdict(int)
-        for frame, intensity in self.history:
-            history[frame] += intensity
-        return history
-
     @staticmethod
     def on_collision(weak_self, event):
         self = weak_self()
         if not self:
             return
-        
-        # Store collision history
-        impulse = event.normal_impulse
-        intensity = math.sqrt(impulse.x**2 + impulse.y**2 + impulse.z**2)
-        self.history.append((event.frame_number, intensity))
-        if len(self.history) > 4000:
-            self.history.pop(0)
 
         # Call on_collision_fn
         if callable(self.on_collision_fn):
@@ -211,20 +204,16 @@ class Vehicle(CarlaActorBase):
         velocity = self.get_velocity()
         return np.sqrt(velocity.x**2 + velocity.y**2 + velocity.z**2)
 
+    def get_closest_waypoint(self):
+        return self.world.map.get_waypoint(self.get_transform().location, project_to_road=True)
+
 #===============================================================================
-# WorldManager
+# World
 #===============================================================================
 
 class World():
     def __init__(self, client):
-        # Get carla world
         self.world = client.get_world()
-        while True:
-            spectators = self.world.get_actors().filter("spectator")
-            if len(spectators) > 0:
-                self.spectator = spectators[0]
-                break
-            time.sleep(0.016)
         self.map = self.get_map()
         self.actor_list = []
 
