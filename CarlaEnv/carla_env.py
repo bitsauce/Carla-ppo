@@ -3,6 +3,7 @@ import carla
 import gym
 import time
 import random
+from collections import deque
 from gym.utils import seeding
 from wrappers import *
 from keyboard_control import KeyboardControl
@@ -127,11 +128,9 @@ class CarlaEnv(gym.Env):
         self.vehicle.control.steer = float(0.0)
         self.vehicle.control.throttle = float(0.0)
         self.vehicle.tick()
-        if False:#randomize_spawn
-            self.vehicle.set_transform(random.choice(self.world.map.get_spawn_points()))
-        else:
-            self.vehicle.set_transform(self.world.map.get_spawn_points()[self.spawn_point])
-        self.vehicle.set_simulate_physics(False) # Resets the car physics
+        if isinstance(self.previous_wp_list, deque):                       # First call to reset this is False
+            self.vehicle.set_transform(self.previous_wp_list[0].transform) # Move vehicle 10 waypoints back
+        self.vehicle.set_simulate_physics(False)                           # Reset the car's physics
         self.vehicle.set_simulate_physics(True)
 
         # Give 2 seconds to reset
@@ -144,6 +143,7 @@ class CarlaEnv(gym.Env):
         self.viewer_image = None    # Most recent rendered image
         self.start_t = time.time()
         self.step_count = 0
+        self.previous_wp_list = deque(maxlen=10)
         
         # Metrics
         self.total_reward = 0.0
@@ -216,6 +216,9 @@ class CarlaEnv(gym.Env):
         self.previous_location = transform.location
 
         self.speed_accum += self.vehicle.get_speed()
+
+        if self.previous_wp_list[-1] != self.closest_waypoint:
+            self.previous_wp_list.append(self.closest_waypoint)
         
         # Call external reward fn
         reward = self.reward_fn(self)
