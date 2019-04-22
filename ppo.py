@@ -13,26 +13,29 @@ class PolicyGraph():
         Manages the policy computation graph
     """
 
-    def __init__(self, input_states, taken_actions,
-                 num_actions, action_min, action_max, scope_name,
+    def __init__(self, input_states, taken_actions, action_space, scope_name,
                  initial_std=0.4, initial_mean_factor=0.1,
                  pi_hidden_sizes=(500, 300), vf_hidden_sizes=(500, 300)):
         """
             input_states [batch_size, width, height, depth]:
                 Input images to predict actions for
             taken_actions [batch_size, num_actions]:
-                Actions taken by the old policy (used for training)
-            num_actions (int):
-                Number of continous actions to output
-            action_min [num_actions]:
-                Minimum possible value for the respective action
-            action_max [num_actions]:
-                Maximum possible value for the respective action
+                Placeholder of taken actions for training
+            action_space (gym.spaces.Box):
+                Continous action space of our agent
             scope_name (string):
                 Variable scope name for the policy graph
+            initial_std (float):
+                Initial value of the std used in the gaussian policy
             initial_mean_factor (float):
                 Variance scaling factor for the action mean prediction layer
+            pi_hidden_sizes (list):
+                List of layer sizes used to construct action predicting MLP
+            vf_hidden_sizes (list):
+                List of layer sizes used to construct value predicting MLP
         """
+
+        num_actions, action_min, action_max = action_space.shape[0], action_space.low, action_space.high
 
         with tf.variable_scope(scope_name):
             # Policy branch π(a_t | s_t; θ)
@@ -67,19 +70,15 @@ class PPO():
         Proximal policy gradient model class
     """
 
-    def __init__(self, input_shape, num_actions, action_min, action_max,
+    def __init__(self, input_shape, action_space,
                  learning_rate=3e-4, lr_decay=0.998, epsilon=0.2,
                  value_scale=0.5, entropy_scale=0.01, initial_std=0.4,
-                 output_dir="./"):
+                 model_dir="./"):
         """
             input_shape [3]:
                 Shape of input images as a tuple (width, height, depth)
-            num_actions (int):
-                Number of continous actions to output
-            action_min [num_actions]:
-                Minimum possible value for the respective action
-            action_max [num_actions]:
-                Maximum possible value for the respective action
+            action_space (gym.spaces.Box):
+                Continous action space of our agent
             learning_rate (float):
                 Initial learning rate
             lr_decay (float):
@@ -90,9 +89,13 @@ class PPO():
                 Value loss scale factor
             entropy_scale (float):
                 Entropy loss scale factor
-            output_dir (string):
+            initial_std (float):
+                Initial value of the std used in the gaussian policy
+            model_dir (string):
                 Directory to output the trained model and log files
         """
+        
+        num_actions = action_space.shape[0]
 
         # Create counters
         self.train_step_counter   = create_counter_variable(name="train_step_counter")
@@ -102,13 +105,13 @@ class PPO():
         # Create placeholders
         self.input_states  = tf.placeholder(shape=(None, *input_shape), dtype=tf.float32, name="input_state_placeholder")
         self.taken_actions = tf.placeholder(shape=(None, num_actions), dtype=tf.float32, name="taken_action_placeholder")
-        self.policy        = PolicyGraph(self.input_states, self.taken_actions, num_actions, action_min, action_max, "policy", initial_std=initial_std)
-        self.policy_old    = PolicyGraph(self.input_states, self.taken_actions, num_actions, action_min, action_max, "policy_old", initial_std=initial_std)
-
-        # Create policy gradient train function
         self.returns   = tf.placeholder(shape=(None,), dtype=tf.float32, name="returns_placeholder")
         self.advantage = tf.placeholder(shape=(None,), dtype=tf.float32, name="advantage_placeholder")
-        
+
+        # Create policy graphs
+        self.policy        = PolicyGraph(self.input_states, self.taken_actions, action_space, "policy", initial_std=initial_std)
+        self.policy_old    = PolicyGraph(self.input_states, self.taken_actions, action_space, "policy_old", initial_std=initial_std)
+
         # Calculate ratio:
         # r_t(θ) = exp( log   π(a_t | s_t; θ) - log π(a_t | s_t; θ_old)   )
         # r_t(θ) = exp( log ( π(a_t | s_t; θ) /     π(a_t | s_t; θ_old) ) )
@@ -138,14 +141,10 @@ class PPO():
         # Minimize loss
         self.learning_rate = tf.train.exponential_decay(learning_rate, self.episode_counter.var, 1, lr_decay, staircase=True)
         self.optimizer     = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
-        #self.optimizer     = tf.train.AdamOptimizer(learning_rate=self.learning_rate, epsilon=1e-5)
         self.train_step    = self.optimizer.minimize(self.loss, var_list=policy_params)
 
         # Update network parameters
         self.update_op = tf.group([dst.assign(src) for src, dst in zip(policy_params, policy_old_params)])
-
-        # Create session
-        self.sess = tf.Session()
 
         # Set up episodic metrics
         metrics = {}
@@ -181,28 +180,32 @@ class PPO():
             summaries.append(tf.summary.scalar("predict_actor/action_{}/std".format(i), tf.exp(self.policy.action_logstd[i])))
         self.stepwise_prediction_summaries = tf.summary.merge(summaries)
 
-        # Run the initializer
-        self.sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
-
         # Set up model saver and dirs
-        self.output_dir = output_dir
+        self.model_dir = model_dir
         self.saver = tf.train.Saver()
-        self.model_dir = "{}/checkpoints/".format(self.output_dir)
-        self.log_dir   = "{}/logs/".format(self.output_dir)
-        self.video_dir = "{}/videos/".format(self.output_dir)
-        self.dirs = [self.model_dir, self.log_dir, self.video_dir]
+        self.checkpoint_dir = "{}/checkpoints/".format(self.model_dir)
+        self.log_dir   = "{}/logs/".format(self.model_dir)
+        self.video_dir = "{}/videos/".format(self.model_dir)
+        self.dirs = [self.checkpoint_dir, self.log_dir, self.video_dir]
         for d in self.dirs: os.makedirs(d, exist_ok=True)
 
-    def init_logging(self):
-        self.train_writer = tf.summary.FileWriter(self.log_dir, self.sess.graph)
+    def init_session(self, sess=None, init_logging=True):
+        if sess is None:
+            self.sess = tf.Session()
+            self.sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
+        else:
+            self.sess = sess
+
+        if init_logging:
+            self.train_writer = tf.summary.FileWriter(self.log_dir, self.sess.graph)
         
     def save(self):
-        model_checkpoint = os.path.join(self.model_dir, "model.ckpt")
+        model_checkpoint = os.path.join(self.checkpoint_dir, "model.ckpt")
         self.saver.save(self.sess, model_checkpoint, global_step=self.episode_counter.var)
         print("Model checkpoint saved to {}".format(model_checkpoint))
 
     def load_latest_checkpoint(self):
-        model_checkpoint = tf.train.latest_checkpoint(self.model_dir)
+        model_checkpoint = tf.train.latest_checkpoint(self.checkpoint_dir)
         if model_checkpoint:
             try:
                 self.saver.restore(self.sess, model_checkpoint)
