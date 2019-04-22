@@ -1,128 +1,273 @@
 import pygame
 import carla
-import os, shutil
+import os
+import shutil
+import gym
+from pygame.locals import *
+from PIL import Image
 from wrappers import *
-from keyboard_control import KeyboardControl
-from hud_v2 import HUD
+from hud import HUD
 
-def main():
+class CarlaDataCollector:
+    """
+        Start CARLA beforehand with:
+
+        $> ./CarlaUE4.sh Town07 -benchmark -fps=30
+    """
+
+    def __init__(self, host="127.0.0.1", port=2000, 
+                 viewer_res=(1280, 720), obs_res=(1280, 720),
+                 num_images_to_save=10000, output_dir="images",
+                 action_smoothing=0.9, fps=30):
+        """
+            Initializes an environment that can be used to save camera/sensor data
+            from driving around manually in CARLA.
+
+            Connects to a running CARLA enviromment (tested on version 0.9.4) and
+            spwans a lincoln mkz2017 passenger car with automatic transmission.
+
+            host (string):
+                IP address of the CARLA host
+            port (short):
+                Port used to connect to CARLA
+            viewer_res (int, int):
+                Resolution of the spectator camera (placed behind the vehicle by default)
+                as a (width, height) tuple
+            obs_res (int, int):
+                Resolution of the observation camera (placed on the dashboard by default)
+                as a (width, height) tuple
+            num_images_to_save (int):
+                Number of images to collect
+            output_dir (str):
+                Output directory to save the images to
+            action_smoothing:
+                Scalar used to smooth the incomming action signal.
+                1.0 = max smoothing, 0.0 = no smoothing
+            fps (int):
+                FPS of the client. If fps <= 0 then use unbounded FPS.
+                Note: Sensors will have a tick rate of fps when fps > 0, 
+                otherwise they will tick as fast as possible.
+        """
+
+        # Initialize pygame for visualization
+        pygame.init()
+        pygame.font.init()
+        width, height = viewer_res
+        if obs_res is None:
+            out_width, out_height = width, height
+        else:
+            out_width, out_height = obs_res
+        self.display = pygame.display.set_mode((width, height), pygame.HWSURFACE | pygame.DOUBLEBUF)
+        self.clock = pygame.time.Clock()
+
+        # Setup gym environment
+        self.action_space = gym.spaces.Box(np.array([-1, 0]), np.array([1, 1]), dtype=np.float32) # steer, throttle
+        self.observation_space = gym.spaces.Box(low=0.0, high=1.0, shape=(*obs_res, 3), dtype=np.float32)
+        self.fps = fps
+        self.spawn_point = 1
+        self.action_smoothing = action_smoothing
+
+        self.done = False
+        self.recording = False
+        self.extra_info = []
+        self.num_saved_observations = 0
+        self.num_images_to_save = num_images_to_save
+        self.observation = {key: None for key in ["rgb", "segmentation"]}        # Last received observations
+        self.observation_buffer = {key: None for key in ["rgb", "segmentation"]}
+        self.viewer_image = self.viewer_image_buffer = None                   # Last received image to show in the viewer
+
+        self.output_dir = output_dir
+        os.makedirs(os.path.join(self.output_dir, "rgb"))
+        os.makedirs(os.path.join(self.output_dir, "segmentation"))
+
+        self.world = None
+        try:
+            # Connect to carla
+            self.client = carla.Client(host, port)
+            self.client.set_timeout(2.0)
+
+            # Create world wrapper
+            self.world = World(self.client)
+
+            # Example: Synchronizing a camera with synchronous mode.
+            settings = self.world.get_settings()
+            settings.synchronous_mode = True
+            self.world.apply_settings(settings)
+
+            # Create vehicle and attach camera to it
+            self.vehicle = Vehicle(self.world, self.world.map.get_spawn_points()[self.spawn_point],
+                                   on_collision_fn=lambda e: self._on_collision(e),
+                                   on_invasion_fn=lambda e: self._on_invasion(e))
+
+            # Create hud
+            self.hud = HUD(width, height)
+            self.hud.set_vehicle(self.vehicle)
+            self.world.on_tick(self.hud.on_world_tick)
+
+            # Create cameras
+            self.dashcam_rgb = Camera(self.world, out_width, out_height,
+                                      transform=camera_transforms["dashboard"],
+                                      attach_to=self.vehicle, on_recv_image=lambda e: self._set_observation_image("rgb", e))
+            self.dashcam_seg = Camera(self.world, out_width, out_height,
+                                      transform=camera_transforms["dashboard"],
+                                      attach_to=self.vehicle, on_recv_image=lambda e: self._set_observation_image("segmentation", e),
+                                      camera_type="sensor.camera.semantic_segmentation")#, color_converter=carla.ColorConverter.CityScapesPalette)
+            self.camera  = Camera(self.world, width, height,
+                                  transform=camera_transforms["spectator"],
+                                  attach_to=self.vehicle, on_recv_image=lambda e: self._set_viewer_image(e))
+        except Exception as e:
+            self.close()
+            raise e
+
+        self.hud.notification("Press \"Enter\" to start collecting data.")
+
+    def close(self):
+        pygame.quit()
+        if self.world is not None:
+            self.world.destroy()
+
+    def save_observation(self):
+        # Blit image from spectator camera
+        self.display.blit(pygame.surfarray.make_surface(self.viewer_image.swapaxes(0, 1)), (0, 0))
+
+        # Superimpose current observation into top-right corner
+        for i, (_, obs) in enumerate(self.observation.items()):
+            obs_h, obs_w = obs.shape[:2]
+            view_h, view_w = self.viewer_image.shape[:2]
+            pos = (view_w - obs_w - 10, obs_h * i + 10 * (i+1))
+            self.display.blit(pygame.surfarray.make_surface(obs.swapaxes(0, 1)), pos)
+
+        # Save current observations
+        if self.recording:
+            for obs_type, obs in self.observation.items():
+                img = Image.fromarray(obs)
+                img.save(os.path.join(self.output_dir, obs_type, "{}.png".format(self.num_saved_observations)))
+            self.num_saved_observations += 1
+            if self.num_saved_observations > self.num_images_to_save:
+                self.done = True
+
+        # Render HUD
+        self.extra_info.extend([
+            "Images: %i/%i" % (self.num_saved_observations, self.num_images_to_save),
+            "Progress: %.2f%%" % (self.num_saved_observations / self.num_images_to_save * 100.0)
+        ])
+        self.hud.render(self.display, extra_info=self.extra_info)
+        self.extra_info = [] # Reset extra info list
+
+        # Render to screen
+        pygame.display.flip()
+
+    def step(self, action):
+        if self.is_done():
+            raise Exception("Step called after CarlaDataCollector was done.")
+
+        # Take action
+        if action is not None:
+            steer, throttle = [float(a) for a in action]
+            #steer, throttle, brake = [float(a) for a in action]
+            self.vehicle.control.steer    = self.vehicle.control.steer * self.action_smoothing + steer * (1.0-self.action_smoothing)
+            self.vehicle.control.throttle = self.vehicle.control.throttle * self.action_smoothing + throttle * (1.0-self.action_smoothing)
+            #self.vehicle.control.brake = self.vehicle.control.brake * self.action_smoothing + brake * (1.0-self.action_smoothing)
+        
+        # Tick game
+        self.clock.tick()
+        self.hud.tick(self.world, self.clock)
+        self.world.tick()
+        try:
+            self.world.wait_for_tick(seconds=0.5)
+        except RuntimeError as e:
+            pass # Timeouts happen for some reason, however, they are fine to ignore
+
+        # Get most recent observation and viewer image
+        self.observation["rgb"] = self._get_observation("rgb")
+        self.observation["segmentation"] = self._get_observation("segmentation")
+        self.viewer_image = self._get_viewer_image()
+
+        pygame.event.pump()
+        keys = pygame.key.get_pressed()
+        if keys[K_ESCAPE]:
+            self.done = True
+        if keys[K_RETURN]:
+            self.recording = True
+
+    def is_done(self):
+        return self.done
+
+    def _get_observation(self, name):
+        while self.observation_buffer[name] is None:
+            pass
+
+        obs = self.observation_buffer[name].copy()
+        self.observation_buffer[name] = None
+        return obs
+
+    def _get_viewer_image(self):
+        while self.viewer_image_buffer is None:
+            pass
+        image = self.viewer_image_buffer.copy()
+        self.viewer_image_buffer = None
+        return image
+
+    def _on_collision(self, event):
+        self.hud.notification("Collision with {}".format(get_actor_display_name(event.other_actor)))
+
+    def _on_invasion(self, event):
+        text = ["%r" % str(x).split()[-1] for x in set(event.crossed_lane_markings)]
+        self.hud.notification("Crossed line %s" % " and ".join(text))
+
+    def _set_observation_image(self, name, image):
+        self.observation_buffer[name] = image
+
+    def _set_viewer_image(self, image):
+        self.viewer_image_buffer = image
+
+if __name__ == "__main__":
     import argparse
-    argparser = argparse.ArgumentParser(description="Script for driving around to collecting data")
+    argparser = argparse.ArgumentParser(description="Run this script to drive around with WASD/arrow keys," +
+                                                    "saving RGB and semanting segmentation images from the front facing camera to the disk")
     argparser.add_argument("--host", default="127.0.0.1", type=str, help="IP of the host server (default: 127.0.0.1)")
     argparser.add_argument("--port", default=2000, type=int, help="TCP port to listen to (default: 2000)")
-    argparser.add_argument("--autopilot", action="store_true", help="Enable autopilot")
-    argparser.add_argument("--res", default="1280x720", type=str, help="Window resolution (default: 1280x720)")
-    argparser.add_argument("--output_res", default=None, type=str, help="Output resolution (default: same as --res)")
-    argparser.add_argument("--output_dir", default="images", type=str, help="Output directory for saved images")
-    argparser.add_argument("--n_steps", default=10000, type=int, help="Number of images to collect")
+    argparser.add_argument("--viewer_res", default="1280x720", type=str, help="Window resolution (default: 1280x720)")
+    argparser.add_argument("--obs_res", default="160x80", type=str, help="Output resolution (default: same as --res)")
+    argparser.add_argument("--output_dir", default="images", type=str, help="Directory to save images to")
+    argparser.add_argument("--num_images", default=10000, type=int, help="Number of images to collect")
     args = argparser.parse_args()
-    
+
+    # Remove existing output directory
     if os.path.isdir(args.output_dir):
         shutil.rmtree(args.output_dir)
     os.makedirs(args.output_dir)
 
-    # Initialize pygame
-    pygame.init()
-    pygame.font.init()
-    width, height = [int(x) for x in args.res.split("x")]
-    if args.output_res is None:
-        out_width, out_height = width, height
+    # Parse viewer_res and obs_res
+    viewer_res = [int(x) for x in args.viewer_res.split("x")]
+    if args.obs_res is None:
+        obs_res = viewer_res
     else:
-        out_width, out_height = [int(x) for x in args.output_res.split("x")]
-    display = pygame.display.set_mode((width, height), pygame.HWSURFACE | pygame.DOUBLEBUF)
-    surface = pygame.surfarray.make_surface(np.zeros((width, height, 3)))
+        obs_res = [int(x) for x in args.obs_res.split("x")]
 
-    world = None
-    try:
-        # Connect to carla
-        client = carla.Client("localhost", 2000)
-        client.set_timeout(2.0)
+    # Create vehicle and actors for data collecting
+    data_collector = CarlaDataCollector(host=args.host, port=args.port,
+                                        viewer_res=viewer_res, obs_res=obs_res,
+                                        num_images_to_save=args.num_images, output_dir=args.output_dir)
+    action = np.zeros(data_collector.action_space.shape[0])
 
-        # Create hud
-        hud = HUD(width, height)
+    # While there are more images to collect
+    while not data_collector.is_done():
+        # Process keyboard input
+        pygame.event.pump()
+        keys = pygame.key.get_pressed()
+        if keys[K_LEFT] or keys[K_a]:
+            action[0] = -0.5
+        elif keys[K_RIGHT] or keys[K_d]:
+            action[0] = 0.5
+        else:
+            action[0] = 0.0
+        action[0] = np.clip(action[0], -1, 1)
+        action[1] = 1.0 if keys[K_UP] or keys[K_w] else 0.0
 
-        # Create world wrapper
-        world = World(client)
-
-        # Set up hud
-        world.on_tick(hud.on_world_tick)
+        # Take action
+        data_collector.step(action)
+        data_collector.save_observation()
         
-        clock = pygame.time.Clock()
-
-        while True:
-            # Flag to reset the world
-            reset = False
-            def do_reset():
-                nonlocal reset
-                reset = True
-
-            def on_collision(event):
-                # Display notification
-                hud.notification("Collision with {}".format(get_actor_display_name(event.other_actor)))
-                do_reset()
-
-            def on_invasion(event):
-                # Display notification
-                text = ["%r" % str(x).split()[-1] for x in set(event.crossed_lane_markings)]
-                hud.notification("Crossed line %s" % " and ".join(text))
-                do_reset()
-                
-            def update_surface(image):
-                nonlocal surface
-                surface = pygame.surfarray.make_surface(image.swapaxes(0, 1))
-
-            # Create vehicle and attach camera to it
-            idx = np.random.randint(len(world.map.get_spawn_points()))
-            print("Spawn",idx)
-            vehicle = Vehicle(world, world.map.get_spawn_points()[idx],
-                            on_collision_fn=on_collision, on_invasion_fn=on_invasion)
-            hud.set_vehicle(vehicle)
-
-            # Create cameras
-            dashcam = Camera(world, out_width, out_height,
-                            transform=carla.Transform(carla.Location(x=1.6, z=1.7)),
-                            attach_to=vehicle)
-            camera = Camera(world, width, height,
-                            transform=carla.Transform(carla.Location(x=-5.5, z=2.8), carla.Rotation(pitch=-15)),
-                            attach_to=vehicle, on_recv_image=update_surface)
-            controller = KeyboardControl(world, vehicle, hud)
-
-            while True:#recording_camera.num_images < args.n_steps:
-                clock.tick_busy_loop(60)
-
-                if controller.parse_events(client, clock):
-                    return
-
-                transform = vehicle.get_transform()
-                waypoint = world.map.get_waypoint(transform.location, project_to_road=True) # Get closest waypoint
-                #world.debug.draw_point(wp_loc, life_time=1.0)
-                loc, wp_loc, = carla_as_array(waypoint.transform.location), carla_as_array(transform.location)
-                distance_from_center = np.linalg.norm(loc[:2] - wp_loc[:2])
-
-                fwd = transform.rotation.get_forward_vector()
-                wp_fwd = waypoint.transform.rotation.get_forward_vector()
-                angle = angle_diff(carla_as_array(fwd), carla_as_array(wp_fwd))
-
-                extra_info = ["Distance from center: %.2f" % distance_from_center,
-                              "Angle difference: %.2f" % np.rad2deg(angle),
-                              "Wrong way" if (np.rad2deg(angle) > 90 or np.rad2deg(angle) < -90) else "Right way"]
-                # Tick
-                world.tick()
-                hud.tick(world, clock)
-
-                # Render
-                display.blit(surface, (0, 0))
-                hud.render(display, extra_info=extra_info)
-
-                pygame.display.flip()
-                
-            # Destroy all actors
-            world.destroy()
-            break
-    finally:
-        pygame.quit()
-        if world is not None:
-            world.destroy()
-
-if __name__ == "__main__":
-    main()
+    # Destroy carla actors
+    data_collector.close()

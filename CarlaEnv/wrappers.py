@@ -29,7 +29,14 @@ def angle_diff(v0, v1):
     elif angle <= -np.pi: angle += 2 * np.pi
     return angle
 
-def carla_as_array(v):
+def distance_to_line(A, B, p):
+    num   = np.linalg.norm(np.cross(B - A, A - p))
+    denom = np.linalg.norm(B - A)
+    if np.isclose(denom, 0):
+        return np.linalg.norm(p - A)
+    return num / denom
+
+def vector(v):
     """ Turn carla Location/Vector3D/Rotation to np.array """
     if isinstance(v, carla.Location) or isinstance(v, carla.Vector3D):
         return np.array([v.x, v.y, v.z])
@@ -137,11 +144,13 @@ class LaneInvasionSensor(CarlaActorBase):
 
 class Camera(CarlaActorBase):
     def __init__(self, world, width, height, transform=carla.Transform(),
-                 sensor_tick=0.0, attach_to=None, on_recv_image=None):
+                 sensor_tick=0.0, attach_to=None, on_recv_image=None,
+                 camera_type="sensor.camera.rgb", color_converter=carla.ColorConverter.Raw):
         self.on_recv_image = on_recv_image
+        self.color_converter = color_converter
 
         # Setup camera blueprint
-        camera_bp = world.get_blueprint_library().find("sensor.camera.rgb")
+        camera_bp = world.get_blueprint_library().find(camera_type)
         camera_bp.set_attribute("image_size_x", str(width))
         camera_bp.set_attribute("image_size_y", str(height))
         camera_bp.set_attribute("sensor_tick", str(sensor_tick))
@@ -160,7 +169,7 @@ class Camera(CarlaActorBase):
         if not self:
             return
         if callable(self.on_recv_image):
-            image.convert(carla.ColorConverter.Raw)
+            image.convert(self.color_converter)
             array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
             array = np.reshape(array, (image.height, image.width, 4))
             array = array[:, :, :3]
@@ -220,6 +229,7 @@ class World():
     def tick(self):
         for actor in list(self.actor_list):
             actor.tick()
+        self.world.tick()
 
     def destroy(self):
         print("Destroying all spawned actors")
