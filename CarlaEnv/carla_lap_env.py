@@ -44,7 +44,7 @@ class CarlaLapEnv(gym.Env):
         """
             Initializes a gym-like environment that can be used to interact with CARLA.
 
-            Connects to a running CARLA enviromment (tested on version 0.9.4) and
+            Connects to a running CARLA enviromment (tested on version 0.9.5) and
             spwans a lincoln mkz2017 passenger car with automatic transmission.
             
             This vehicle can be controlled using the step() function,
@@ -135,7 +135,8 @@ class CarlaLapEnv(gym.Env):
             raise e
 
         # Generate waypoints along the lap
-        lap = compute_route_waypoints(lap_start_wp, lap_start_wp, [RoadOption.STRAIGHT] * 7, hop_resolution=1.0)
+        lap = compute_route_waypoints(self.world.map, lap_start_wp, lap_start_wp, resolution=1.0,
+                                      plan=[RoadOption.STRAIGHT] + [RoadOption.RIGHT] * 2 + [RoadOption.STRAIGHT] * 5)
         self.route_waypoints = [p[0] for p in lap]
         self.current_waypoint_index = 0
         self.checkpoint_waypoint_index = 0
@@ -287,8 +288,8 @@ class CarlaLapEnv(gym.Env):
                                                      vector(transform.location))
         self.center_lane_deviation += self.distance_from_center
 
-        #self.world.debug.draw_point(wp0.transform.location, color=carla.Color(0, 255, 0), life_time=1.0)
-        #self.world.debug.draw_point(wp1.transform.location, color=carla.Color(255, 0, 0), life_time=1.0)
+        self.world.debug.draw_point(self.current_waypoint.transform.location, color=carla.Color(0, 255, 0), life_time=1.0)
+        self.world.debug.draw_point(self.next_waypoint.transform.location, color=carla.Color(255, 0, 0), life_time=1.0)
 
         # Calculate distance traveled
         self.distance_traveled += self.previous_location.distance(transform.location)

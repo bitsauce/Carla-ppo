@@ -23,7 +23,7 @@ class CarlaDataCollector:
             Initializes an environment that can be used to save camera/sensor data
             from driving around manually in CARLA.
 
-            Connects to a running CARLA enviromment (tested on version 0.9.4) and
+            Connects to a running CARLA enviromment (tested on version 0.9.5) and
             spwans a lincoln mkz2017 passenger car with automatic transmission.
 
             host (string):
