@@ -94,8 +94,13 @@ class CarlaDataCollector:
             settings.synchronous_mode = True
             self.world.apply_settings(settings)
 
+            # Get spawn location
+            lap_start_wp = self.world.map.get_waypoint(carla.Location(x=-180.0, y=110))
+            spawn_transform = lap_start_wp.transform
+            spawn_transform.location += carla.Location(z=1.0)
+
             # Create vehicle and attach camera to it
-            self.vehicle = Vehicle(self.world, self.world.map.get_spawn_points()[self.spawn_point],
+            self.vehicle = Vehicle(self.world, spawn_transform,
                                    on_collision_fn=lambda e: self._on_collision(e),
                                    on_invasion_fn=lambda e: self._on_invasion(e))
 
@@ -143,7 +148,7 @@ class CarlaDataCollector:
                 img = Image.fromarray(obs)
                 img.save(os.path.join(self.output_dir, obs_type, "{}.png".format(self.num_saved_observations)))
             self.num_saved_observations += 1
-            if self.num_saved_observations > self.num_images_to_save:
+            if self.num_saved_observations >= self.num_images_to_save:
                 self.done = True
 
         # Render HUD
@@ -212,7 +217,8 @@ class CarlaDataCollector:
         self.hud.notification("Collision with {}".format(get_actor_display_name(event.other_actor)))
 
     def _on_invasion(self, event):
-        text = ["%r" % str(x).split()[-1] for x in set(event.crossed_lane_markings)]
+        lane_types = set(x.type for x in event.crossed_lane_markings)
+        text = ["%r" % str(x).split()[-1] for x in lane_types]
         self.hud.notification("Crossed line %s" % " and ".join(text))
 
     def _set_observation_image(self, name, image):
@@ -231,6 +237,7 @@ if __name__ == "__main__":
     argparser.add_argument("--obs_res", default="160x80", type=str, help="Output resolution (default: same as --res)")
     argparser.add_argument("--output_dir", default="images", type=str, help="Directory to save images to")
     argparser.add_argument("--num_images", default=10000, type=int, help="Number of images to collect")
+    argparser.add_argument("--fps", default=30, type=int, help="FPS. Delta time between samples is 1/FPS")
     args = argparser.parse_args()
 
     # Remove existing output directory
@@ -247,7 +254,7 @@ if __name__ == "__main__":
 
     # Create vehicle and actors for data collecting
     data_collector = CarlaDataCollector(host=args.host, port=args.port,
-                                        viewer_res=viewer_res, obs_res=obs_res,
+                                        viewer_res=viewer_res, obs_res=obs_res, fps=args.fps,
                                         num_images_to_save=args.num_images, output_dir=args.output_dir)
     action = np.zeros(data_collector.action_space.shape[0])
 

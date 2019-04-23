@@ -119,7 +119,7 @@ class LaneInvasionSensor(CarlaActorBase):
         self.on_invasion_fn = on_invasion_fn
 
         # Setup sensor blueprint
-        bp = world.get_blueprint_library().find("sensor.other.lane_detector")
+        bp = world.get_blueprint_library().find("sensor.other.lane_invasion")
 
         # Create sensor
         weak_self = weakref.ref(self)

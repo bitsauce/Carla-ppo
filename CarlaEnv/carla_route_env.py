@@ -320,7 +320,8 @@ class CarlaRouteEnv(gym.Env):
         self.hud.notification("Collision with {}".format(get_actor_display_name(event.other_actor)))
 
     def _on_invasion(self, event):
-        text = ["%r" % str(x).split()[-1] for x in set(event.crossed_lane_markings)]
+        lane_types = set(x.type for x in event.crossed_lane_markings)
+        text = ["%r" % str(x).split()[-1] for x in lane_types]
         self.hud.notification("Crossed line %s" % " and ".join(text))
 
     def _set_observation_image(self, image):
