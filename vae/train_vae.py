@@ -48,27 +48,28 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Trains a VAE with RGB images as source and RGB or segmentation images as target")
     parser.add_argument("--model_name", type=str, default=None)
     parser.add_argument("--dataset", type=str, default="data")
-    parser.add_argument("--use_segmentations", type=bool, default=False)
+    parser.add_argument("--use_segmentation_as_target", type=bool, default=False)
     parser.add_argument("--loss_type", type=str, default="bce")
     parser.add_argument("--model_type", type=str, default="cnn")
     parser.add_argument("--beta", type=int, default=1)
     parser.add_argument("--z_dim", type=int, default=64)
     parser.add_argument("--learning_rate", type=float, default=1e-4)
-    parser.add_argument("--lr_decay", type=float, default=0.98)
+    parser.add_argument("--lr_decay", type=float, default=1.0)
     parser.add_argument("--batch_size", type=int, default=100)
     parser.add_argument("--kl_tolerance", type=float, default=0.0)
+    parser.add_argument("-restart", action="store_true")
     args = parser.parse_args()
 
     # Load images from dataset/rgb and dataset/segmentation folders
     # (for every rgb/xxx.png we expect a corresponding segmentation/xxx.png)
     rgb_images = load_images(os.path.join(args.dataset, "rgb"), preprocess_rgb_frame)
-    if args.use_segmentations:
+    if args.use_segmentation_as_target:
         seg_images = load_images(os.path.join(args.dataset, "segmentation"), preprocess_seg_frame)
     
     # Split into train and val sets
     np.random.seed(0)
     train_source_images, val_source_images = train_val_split(rgb_images, val_portion=0.1)
-    if args.use_segmentations:
+    if args.use_segmentation_as_target:
         train_target_images, val_target_images = train_val_split(seg_images, val_portion=0.1)
     else:
         train_target_images, val_target_images = train_source_images, val_source_images
@@ -76,24 +77,23 @@ if __name__ == "__main__":
     # Get source and target image sizes
     # (may be different e.g. RGB and grayscale)
     source_shape = train_source_images.shape[1:]
-    target_shape = train_target_images.shape[1:] if args.use_segmentations else source_shape
+    target_shape = train_target_images.shape[1:] if args.use_segmentation_as_target else source_shape
+
+    # Set model name from params
+    if args.model_name is None:
+        args.model_name = "{}_{}_{}_zdim{}_beta{}_kl_tolerance{}_{}".format(
+            "seg" if args.use_segmentation_as_target else "rgb",
+            args.loss_type, args.model_type, args.z_dim, args.beta, args.kl_tolerance,
+            os.path.splitext(os.path.basename(args.dataset))[0])
 
     print("train_source_images.shape", train_source_images.shape)
     print("val_source_images.shape", val_source_images.shape)
     print("train_target_images.shape", train_target_images.shape)
     print("val_target_images.shape", val_target_images.shape)
-
     print("")
     print("Training parameters:")
     for k, v, in vars(args).items(): print(f"  {k}: {v}")
     print("")
-
-    # Set model name from params
-    if args.model_name is None:
-        args.model_name = "{}_{}_{}_zdim{}_beta{}_kl_tolerance{}_{}".format(
-            "seg" if args.use_segmentations else "rgb",
-            args.loss_type, args.model_type, args.z_dim, args.beta, args.kl_tolerance,
-            os.path.splitext(os.path.basename(args.dataset))[0])
 
     if args.loss_type == "bce": loss_fn = bce_loss
     elif args.loss_type == "bce_v2": loss_fn = bce_loss_v2
@@ -113,8 +113,26 @@ if __name__ == "__main__":
                    lr_decay=args.lr_decay,
                    kl_tolerance=args.kl_tolerance,
                    loss_fn=loss_fn,
-                   model_name=args.model_name)
+                   model_dir=os.path.join("models", args.model_name))
+
+    # Prompt to load existing model if any
+    if not args.restart:
+        if os.path.isdir(vae.log_dir) and len(os.listdir(vae.log_dir)) > 0:
+            answer = input("Model \"{}\" already exists. Do you wish to continue (C) or restart training (R)? ".format(model_name))
+            if answer.upper() == "C":
+                pass
+            elif answer.upper() == "R":
+                args.restart = True
+            else:
+                raise Exception("There are already log files for model \"{}\". Please delete it or change model_name and try again".format(model_name))
+    
+    if args.restart:
+        shutil.rmtree(vae.model_dir)
+        for d in vae.dirs:
+            os.makedirs(d)
     vae.init_session()
+    if not args.restart:
+        vae.load_latest_checkpoint()
 
     # Training loop
     min_val_loss = float("inf")

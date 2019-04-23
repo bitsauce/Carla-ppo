@@ -37,8 +37,7 @@ class VAE():
 
     def __init__(self, source_shape, target_shape, build_encoder_fn, build_decoder_fn,
                  z_dim=512, beta=1.0, learning_rate=1e-4, lr_decay=0.98, kl_tolerance=0.0,
-                 model_name="vae", models_dir=".", loss_fn=bce_loss,
-                 training=True, reuse=tf.AUTO_REUSE,
+                 model_dir=".", loss_fn=bce_loss, training=True, reuse=tf.AUTO_REUSE,
                  **kwargs):
         """
             Builds a VAE that passes source states through the encoding graph
@@ -67,10 +66,8 @@ class VAE():
             kl_tolerance (float):
                 A value denoting how tolerant we are to KL-divergence before we
                 apply KL-divergence loss.
-            model_name (string):
-                Model name. Used for saving and loading.
-            models_dir (sting):
-                Directory of models. Used for saving and loading.
+            model_dir (sting):
+                Directory of logs and checkpoints for this model. Used for saving and loading.
             loss_fn (function):
                 A loss function taking labels, logits, and targets.
             training (bool):
@@ -120,7 +117,6 @@ class VAE():
             self.inc_step_idx = tf.assign(self.step_idx, self.step_idx + 1)
 
             # Create optimizer
-            self.saver = tf.train.Saver()
             if training:
                 # Reconstruction loss
                 self.flattened_target = tf.layers.flatten(target_states, name="flattened_target")
@@ -154,11 +150,12 @@ class VAE():
                     tf.summary.scalar("learning_rate", self.learning_rate)
                 ])
 
-            # Set model dirs
-            self.model_name = model_name
-            self.models_dir = os.path.join(models_dir, "models", model_name)
-            self.log_dir = os.path.join(models_dir, "logs", model_name)
-            self.dirs = [self.models_dir, self.log_dir]
+            # Setup model saver and dirs
+            self.saver = tf.train.Saver()
+            self.model_dir = model_dir
+            self.checkpoint_dir = "{}/checkpoints/".format(self.model_dir)
+            self.log_dir        = "{}/logs/".format(self.model_dir)
+            self.dirs = [self.checkpoint_dir, self.log_dir]
             for d in self.dirs: os.makedirs(d, exist_ok=True)
 
     def init_session(self, sess=None, init_logging=True):
@@ -171,6 +168,22 @@ class VAE():
         if init_logging:
             self.train_writer = tf.summary.FileWriter(os.path.join(self.log_dir, "train"), self.sess.graph)
             self.val_writer = tf.summary.FileWriter(os.path.join(self.log_dir, "val"), self.sess.graph)
+
+    def save(self):
+        model_checkpoint = os.path.join(self.checkpoint_dir, "model.ckpt")
+        self.saver.save(self.sess, model_checkpoint, global_step=self.step_idx)
+        print("Model checkpoint saved to {}".format(model_checkpoint))
+
+    def load_latest_checkpoint(self):
+        model_checkpoint = tf.train.latest_checkpoint(self.checkpoint_dir)
+        if model_checkpoint:
+            try:
+                self.saver.restore(self.sess, model_checkpoint)
+                print("Model checkpoint restored from {}".format(model_checkpoint))
+                return True
+            except Exception as e:
+                print(e)
+                return False
 
     def generate_from_latent(self, z):
         return self.sess.run(self.reconstructed_states, feed_dict={
@@ -187,23 +200,6 @@ class VAE():
         return self.sess.run(self.mean, feed_dict={
                 self.source_states: source_states
             })
-
-    def save(self):
-        model_checkpoint = os.path.join(self.models_dir, "model.ckpt")
-        self.saver.save(self.sess, model_checkpoint, global_step=self.step_idx)
-        print("Model checkpoint saved to {}".format(model_checkpoint))
-
-    def load_latest_checkpoint(self):
-        # Load checkpoint
-        model_checkpoint = tf.train.latest_checkpoint(self.models_dir)
-        if model_checkpoint:
-            try:
-                self.saver.restore(self.sess, model_checkpoint)
-                print("Model checkpoint restored from {}".format(model_checkpoint))
-                return True
-            except Exception as e:
-                print(e)
-                return False
 
     def get_step_idx(self):
         return tf.train.global_step(self.sess, self.step_idx)
