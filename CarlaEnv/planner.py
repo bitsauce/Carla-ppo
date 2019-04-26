@@ -1,7 +1,7 @@
 import numpy as np
 
 # ==============================================================================
-# -- import route planning (copied CARLA 0.9.4's PythonAPI) --------------------
+# -- import route planning (copied and modified from CARLA 0.9.4's PythonAPI) --
 # ==============================================================================
 import carla
 from agents.navigation.local_planner import RoadOption
@@ -10,6 +10,26 @@ from agents.navigation.global_route_planner_dao import GlobalRoutePlannerDAO
 from agents.tools.misc import vector
 
 def compute_route_waypoints(world_map, start_waypoint, end_waypoint, resolution=1.0, plan=None):
+    """
+        Returns a list of (waypoint, RoadOption)-tuples that describes a route
+        starting at start_waypoint, ending at end_waypoint.
+
+        start_waypoint (carla.Waypoint):
+            Starting waypoint of the route
+        end_waypoint (carla.Waypoint):
+            Destination waypoint of the route
+        resolution (float):
+            Resolution, or lenght, of the steps between waypoints
+            (in meters)
+        plan (list(RoadOption) or None):
+            If plan is not None, generate a route that takes every option as provided
+            in the list for every intersections, in the given order.
+            (E.g. set plan=[RoadOption.STRAIGHT, RoadOption.LEFT, RoadOption.RIGHT]
+            to make the route go straight, then left, then right.)
+            If plan is None, we use the GlobalRoutePlanner to find a path between
+            start_waypoint and end_waypoint.
+    """
+
     if plan is None:
         # Setting up global router
         dao = GlobalRoutePlannerDAO(world_map, resolution)
@@ -91,5 +111,16 @@ def compute_route_waypoints(world_map, start_waypoint, end_waypoint, resolution=
                     route.append((current_waypoint, action))
                     current_waypoint = current_waypoint.next(resolution)[0]
         assert route
+
+    # Change action 5 wp before intersection
+    num_wp_to_extend_actions_with = 5
+    action = route[0][1]
+    for i in range(1, len(route)):
+        next_action = route[i][1]
+        if next_action != action:
+            if next_action != RoadOption.LANEFOLLOW:
+                for j in range(num_wp_to_extend_actions_with):
+                    route[i-j-1] = (route[i-j-1][0], route[i][1])
+        action = next_action
 
     return route

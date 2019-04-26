@@ -14,7 +14,7 @@ from skimage import transform
 
 from ppo import PPO
 from vae.models import ConvVAE, MlpVAE
-from CarlaEnv.carla_env import CarlaLapEnv as CarlaEnv
+from CarlaEnv.carla_lap_env import CarlaLapEnv as CarlaEnv
 from CarlaEnv.wrappers import angle_diff, vector
 from utils import VideoRecorder, compute_gae
 from common import create_encode_state_fn, reward_fn, load_vae
@@ -85,9 +85,9 @@ if __name__ == "__main__":
 
     # Create env
     print("Creating environment...")
-    env = CarlaEnv(obs_res=(160, 80),
+    env = CarlaEnv(obs_res=(160, 80), action_smoothing=args.action_smoothing,
                    encode_state_fn=encode_state_fn, reward_fn=reward_fn,
-                   action_smoothing=args.action_smoothing, fps=args.fps)
+                   synchronous=True, fps=args.fps)
     env.seed(0)
 
     # Create model

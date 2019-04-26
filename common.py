@@ -5,15 +5,14 @@ import time
 from CarlaEnv.wrappers import angle_diff, vector
 from vae.models import ConvVAE, MlpVAE
 
-def load_vae(model_name, z_dim=None, model_type=None):
+def load_vae(model_dir, z_dim=None, model_type=None):
     """
-        Loads and returns a pretrained VAE from the
-        vae/models/model_name directory
+        Loads and returns a pretrained VAE
     """
     
     # Parse z_dim and model_type from name if None
-    if z_dim is None: z_dim = int(re.findall("zdim(\d+)", model_name)[0])
-    if model_type is None: model_type = "mlp" if "mlp" in model_name else "cnn"
+    if z_dim is None: z_dim = int(re.findall("zdim(\d+)", model_dir)[0])
+    if model_type is None: model_type = "mlp" if "mlp" in model_dir else "cnn"
     VAEClass = MlpVAE if model_type == "mlp" else ConvVAE
 
     # Load pre-trained variational autoencoder
@@ -21,7 +20,7 @@ def load_vae(model_name, z_dim=None, model_type=None):
     vae = VAEClass(source_shape=vae_source_shape,
                    target_shape=np.array([80,160,1]),
                    z_dim=z_dim, models_dir="vae",
-                   model_name=model_name,
+                   model_dir=model_dir,
                    training=False)
     vae.init_session(init_logging=False)
     if not vae.load_latest_checkpoint():
@@ -369,10 +368,11 @@ centered to 0 when 3 m from center
 
 
         # Interpolated from 1 when aligned with the road to 0 when +/- 20 degress of road
-        angle_factor = max(1.0 - abs(angle / np.deg2rad(20)), 0.0)
+        #angle_factor = max(1.0 - abs(angle / np.deg2rad(20)), 0.0)
+        angle_factor = max(max(1.0 - abs(angle / np.deg2rad(180)), 0.0)**4, 0.1) # 6.2
 
         # Interpolated from 1 when centered to 0 when 3 m from center
-        centering_factor = max(1.0 - env.distance_from_center / max_distance, 0.0)
+        centering_factor = max(1.0 - env.distance_from_center / max_distance, 0.1)
 
         # Final reward
         reward += speed_reward * centering_factor * angle_factor

@@ -17,22 +17,25 @@ from planner import compute_route_waypoints, RoadOption
 
 class CarlaLapEnv(gym.Env):
     """
-        This is a simple CARLA environment, where the goal is to drive in a lap
-        around the outskirts of Town07. This environment can be used it to compare
+        This is a simple CARLA environment where the goal is to drive in a lap
+        around the outskirts of Town07. This environment can be used to compare
         different models/reward functions in a realtively predictable environment.
 
-        This version of CarlaEnv also uses the idea of failing faster, that is,
-        the agent is reset to an earlier point on the current stretch road on failure
-        until the agent surpasses it.
-
-        To get this environment to run, start CARLA beforehand with:
+        To run this environment in asynchronous mode, start CARLA beforehand with:
 
         $> ./CarlaUE4.sh Town07
 
-        Note that this environment has only been tested asynchronously.
-        While CARLA does support synchronous simulation, I opted for testing
-        asynchronously as this is more in-line with a real car.
-        (see https://carla.readthedocs.io/en/latest/configuring_the_simulation/#synchronous-mode)
+        Or, if you want to run in synchronous mode, use the following command:
+
+        $> ./CarlaUE4.sh Town07 -benchmark -fps=30
+
+        And also remember to change the -fps argument to match the fps of the environment
+        and set synchronous to True, e.g. CarlaLapEnv(..., fps=30, synchronous=True)
+        
+        I also needed to add the following line to Unreal/CarlaUE4/Config/DefaultGame.ini
+        to get the map to be included in the package:
+        
+        +MapsToCook=(FilePath="/Game/Carla/Maps/Town07")
     """
 
     metadata = {
@@ -40,7 +43,7 @@ class CarlaLapEnv(gym.Env):
     }
 
     def __init__(self, host="127.0.0.1", port=2000, viewer_res=(1280, 720), obs_res=(1280, 720),
-                 reward_fn=None, encode_state_fn=None, action_smoothing=0.9, fps=30):
+                 reward_fn=None, encode_state_fn=None, action_smoothing=0.9, fps=30, synchronous=True):
         """
             Initializes a gym-like environment that can be used to interact with CARLA.
 
@@ -74,6 +77,8 @@ class CarlaLapEnv(gym.Env):
                 FPS of the client. If fps <= 0 then use unbounded FPS.
                 Note: Sensors will have a tick rate of fps when fps > 0, 
                 otherwise they will tick as fast as possible.
+            synchronous (bool):
+                If True, run in synchronous mode (read the comment above for more info)
         """
 
         # Initialize pygame for visualization
@@ -86,6 +91,7 @@ class CarlaLapEnv(gym.Env):
             out_width, out_height = obs_res
         self.display = pygame.display.set_mode((width, height), pygame.HWSURFACE | pygame.DOUBLEBUF)
         self.clock = pygame.time.Clock()
+        self.synchronous = synchronous
 
         # Setup gym environment
         self.seed()
@@ -106,6 +112,11 @@ class CarlaLapEnv(gym.Env):
             # Create world wrapper
             self.world = World(self.client)
 
+            if self.synchronous:
+                settings = self.world.get_settings()
+                settings.synchronous_mode = True
+                self.world.apply_settings(settings)
+
             # Get spawn location
             lap_start_wp = self.world.map.get_waypoint(carla.Location(x=-180.0, y=110))
             spawn_transform = lap_start_wp.transform
@@ -125,19 +136,18 @@ class CarlaLapEnv(gym.Env):
             self.dashcam = Camera(self.world, out_width, out_height,
                                   transform=camera_transforms["dashboard"],
                                   attach_to=self.vehicle, on_recv_image=lambda e: self._set_observation_image(e),
-                                  sensor_tick=1.0/self.fps)
+                                  sensor_tick=0.0 if self.synchronous else 1.0/self.fps)
             self.camera  = Camera(self.world, width, height,
                                   transform=camera_transforms["spectator"],
                                   attach_to=self.vehicle, on_recv_image=lambda e: self._set_viewer_image(e),
-                                  sensor_tick=1.0/self.fps)
+                                  sensor_tick=0.0 if self.synchronous else 1.0/self.fps)
         except Exception as e:
             self.close()
             raise e
 
         # Generate waypoints along the lap
-        lap = compute_route_waypoints(self.world.map, lap_start_wp, lap_start_wp, resolution=1.0,
-                                      plan=[RoadOption.STRAIGHT] + [RoadOption.RIGHT] * 2 + [RoadOption.STRAIGHT] * 5)
-        self.route_waypoints = [p[0] for p in lap]
+        self.route_waypoints = compute_route_waypoints(self.world.map, lap_start_wp, lap_start_wp, resolution=1.0,
+                                                       plan=[RoadOption.STRAIGHT] + [RoadOption.RIGHT] * 2 + [RoadOption.STRAIGHT] * 5)
         self.current_waypoint_index = 0
         self.checkpoint_waypoint_index = 0
 
@@ -156,19 +166,30 @@ class CarlaLapEnv(gym.Env):
         self.vehicle.tick()
         if is_training:
             # Teleport vehicle to last checkpoint
-            transform = self.route_waypoints[self.checkpoint_waypoint_index % len(self.route_waypoints)].transform
+            waypoint, _ = self.route_waypoints[self.checkpoint_waypoint_index % len(self.route_waypoints)]
             self.current_waypoint_index = self.checkpoint_waypoint_index
         else:
             # Teleport vehicle to start of track
-            transform = self.route_waypoints[0].transform
+            waypoint, _ = self.route_waypoints[0]
             self.current_waypoint_index = 0
+        transform = waypoint.transform
         transform.location += carla.Location(z=1.0)
         self.vehicle.set_transform(transform)
         self.vehicle.set_simulate_physics(False) # Reset the car's physics
         self.vehicle.set_simulate_physics(True)
 
         # Give 2 seconds to reset
-        time.sleep(2.0)
+        if self.synchronous:
+            ticks = 0
+            while ticks < self.fps * 2:
+                self.world.tick()
+                try:
+                    self.world.wait_for_tick(seconds=1.0/self.fps + 0.1)
+                    ticks += 1
+                except:
+                    pass
+        else:
+            time.sleep(2.0)
 
         self.terminal_state = False # Set to True when we want to end episode
         self.closed = False         # Set to True when ESC is pressed
@@ -188,6 +209,9 @@ class CarlaLapEnv(gym.Env):
         self.speed_accum = 0.0
         self.laps_completed = 0.0
 
+        # DEBUG: Draw path
+        #self._draw_path(life_time=1000.0, skip=10)
+
         # Return initial observation
         return self.step(None)[0]
 
@@ -198,10 +222,19 @@ class CarlaLapEnv(gym.Env):
         self.closed = True
 
     def render(self, mode="human"):
+        # Get maneuver name
+        if self.current_road_maneuver == RoadOption.LANEFOLLOW: maneuver = "Follow Lane"
+        elif self.current_road_maneuver == RoadOption.LEFT:     maneuver = "Left"
+        elif self.current_road_maneuver == RoadOption.RIGHT:    maneuver = "Right"
+        elif self.current_road_maneuver == RoadOption.STRAIGHT: maneuver = "Straight"
+        elif self.current_road_maneuver == RoadOption.VOID:     maneuver = "VOID"
+        else:                                                   maneuver = "INVALID"
+
         # Add metrics to HUD
         self.extra_info.extend([
             "Reward: % 19.2f" % self.last_reward,
             "",
+            "Maneuver:        % 11s"       % maneuver,
             "Laps completed:    % 7.2f %%" % (self.laps_completed * 100.0),
             "Distance traveled: % 7d m"    % self.distance_traveled,
             "Center deviance:   % 7.2f m"  % self.distance_from_center,
@@ -238,13 +271,18 @@ class CarlaLapEnv(gym.Env):
             raise Exception("CarlaEnv.step() called after the environment was closed." +
                             "Check for info[\"closed\"] == True in the learning loop.")
 
-        # Update fps metrics
-        if self.fps <= 0:
-            self.clock.tick()
-        else:
-            self.clock.tick_busy_loop(self.fps)
-        if action is not None: # Dont update average fps on the first step() call
-            self.average_fps = self.average_fps * 0.5 + self.clock.get_fps() * 0.5
+        # Asynchronous update logic
+        if not self.synchronous:
+            if self.fps <= 0:
+                # Go as fast as possible
+                self.clock.tick()
+            else:
+                # Sleep to keep a steady fps
+                self.clock.tick_busy_loop(self.fps)
+            
+            # Update average fps (for saving recordings)
+            if action is not None:
+                self.average_fps = self.average_fps * 0.5 + self.clock.get_fps() * 0.5
 
         # Take action
         if action is not None:
@@ -253,15 +291,26 @@ class CarlaLapEnv(gym.Env):
             self.vehicle.control.steer    = self.vehicle.control.steer * self.action_smoothing + steer * (1.0-self.action_smoothing)
             self.vehicle.control.throttle = self.vehicle.control.throttle * self.action_smoothing + throttle * (1.0-self.action_smoothing)
             #self.vehicle.control.brake = self.vehicle.control.brake * self.action_smoothing + brake * (1.0-self.action_smoothing)
-        
+
+        # Tick game
+        self.hud.tick(self.world, self.clock)
+        self.world.tick()
+
+        # Synchronous update logic
+        if self.synchronous:
+            self.clock.tick()
+            while True:
+                try:
+                    self.world.wait_for_tick(seconds=1.0/self.fps + 0.1)
+                    break
+                except:
+                    # Timeouts happen occationally for some reason, however, they seem to be fine to ignore
+                    self.world.tick()
+
         # Get most recent observation and viewer image
         self.observation = self._get_observation()
         self.viewer_image = self._get_viewer_image()
         encoded_state = self.encode_state_fn(self)
-
-        # Tick game
-        self.world.tick()
-        self.hud.tick(self.world, self.clock)
 
         # Get vehicle transform
         transform = self.vehicle.get_transform()
@@ -271,7 +320,7 @@ class CarlaLapEnv(gym.Env):
         for _ in range(len(self.route_waypoints)):
             # Check if we passed the next waypoint along the route
             next_waypoint_index = waypoint_index + 1
-            wp = self.route_waypoints[next_waypoint_index % len(self.route_waypoints)]
+            wp, _ = self.route_waypoints[next_waypoint_index % len(self.route_waypoints)]
             dot = np.dot(vector(wp.transform.get_forward_vector())[:2],
                          vector(transform.location - wp.transform.location)[:2])
             if dot > 0.0: # Did we pass the waypoint?
@@ -281,15 +330,15 @@ class CarlaLapEnv(gym.Env):
         self.current_waypoint_index = waypoint_index
 
         # Calculate deviation from center of the lane
-        self.current_waypoint = self.route_waypoints[ self.current_waypoint_index    % len(self.route_waypoints)]
-        self.next_waypoint    = self.route_waypoints[(self.current_waypoint_index+1) % len(self.route_waypoints)]
+        self.current_waypoint, self.current_road_maneuver = self.route_waypoints[ self.current_waypoint_index    % len(self.route_waypoints)]
+        self.next_waypoint, self.next_road_maneuver       = self.route_waypoints[(self.current_waypoint_index+1) % len(self.route_waypoints)]
         self.distance_from_center = distance_to_line(vector(self.current_waypoint.transform.location),
                                                      vector(self.next_waypoint.transform.location),
                                                      vector(transform.location))
         self.center_lane_deviation += self.distance_from_center
 
-        self.world.debug.draw_point(self.current_waypoint.transform.location, color=carla.Color(0, 255, 0), life_time=1.0)
-        self.world.debug.draw_point(self.next_waypoint.transform.location, color=carla.Color(255, 0, 0), life_time=1.0)
+        # DEBUG: Draw current waypoint
+        #self.world.debug.draw_point(self.current_waypoint.transform.location, color=carla.Color(0, 255, 0), life_time=1.0)
 
         # Calculate distance traveled
         self.distance_traveled += self.previous_location.distance(transform.location)
@@ -322,6 +371,30 @@ class CarlaLapEnv(gym.Env):
         
         return encoded_state, self.last_reward, self.terminal_state, { "closed": self.closed }
 
+    def _draw_path(self, life_time=60.0, skip=0):
+        """
+            Draw a connected path from start of route to end.
+            Green node = start
+            Red node   = point along path
+            Blue node  = destination
+        """
+        for i in range(0, len(self.route_waypoints)-1, skip+1):
+            w0 = self.route_waypoints[i][0]
+            w1 = self.route_waypoints[i+1][0]
+            self.world.debug.draw_line(
+                w0.transform.location + carla.Location(z=0.25),
+                w1.transform.location + carla.Location(z=0.25),
+                thickness=0.1, color=carla.Color(255, 0, 0),
+                life_time=life_time, persistent_lines=False)
+            self.world.debug.draw_point(
+                w0.transform.location + carla.Location(z=0.25), 0.1,
+                carla.Color(0, 255, 0) if i == 0 else carla.Color(255, 0, 0),
+                life_time, False)
+        self.world.debug.draw_point(
+            self.route_waypoints[-1][0].transform.location + carla.Location(z=0.25), 0.1,
+            carla.Color(0, 0, 255),
+            life_time, False)
+
     def _get_observation(self):
         while self.observation_buffer is None:
             pass
@@ -351,8 +424,8 @@ class CarlaLapEnv(gym.Env):
         self.viewer_image_buffer = image
 
 def reward_fn(env):
-    fail_faster = False
-    if fail_faster:
+    early_termination = False
+    if early_termination:
         # If speed is less than 1.0 km/h after 5s, stop
         if time.time() - env.start_t > 5.0 and speed < 1.0 / 3.6:
             env.terminal_state = True

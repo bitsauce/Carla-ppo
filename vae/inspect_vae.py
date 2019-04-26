@@ -14,8 +14,7 @@ from models import MlpVAE, ConvVAE
 from train_vae import preprocess_rgb_frame
 
 parser = argparse.ArgumentParser(description="Visualizes the features learned by the VAE")
-parser.add_argument("--model_name", type=str, required=True)
-parser.add_argument("--models_dir", type=str, default=".")
+parser.add_argument("--model_dir", type=str, required=True)
 parser.add_argument("--model_type", type=str, default="cnn")
 parser.add_argument("--z_dim", type=int, default=64)
 parser.add_argument("--source_shape", type=str, default="160x80x3")
@@ -33,8 +32,7 @@ else: raise Exception("No model type \"{}\"".format(args.model_type))
 vae = VAEClass(source_shape=source_shape,
                target_shape=target_shape,
                z_dim=args.z_dim,
-               model_name=args.model_name,
-               models_dir=args.models_dir,
+               model_dir=args.model_dir,
                training=False)
 vae.init_session(init_logging=False)
 if not vae.load_latest_checkpoint():

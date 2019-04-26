@@ -201,7 +201,6 @@ class CarlaDataCollector:
     def _get_observation(self, name):
         while self.observation_buffer[name] is None:
             pass
-
         obs = self.observation_buffer[name].copy()
         self.observation_buffer[name] = None
         return obs
