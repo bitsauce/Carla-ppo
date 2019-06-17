@@ -14,7 +14,8 @@ We have used the urban driving simulator [CALRA](http://carla.org/) (version 0.9
 
 Find a [detailed project write-up here (thesis).](TODO)
 
-TODO video link
+Video of results (use the timestaps in the description to navigate to the relevant experiments.)
+<a href="http://www.youtube.com/watch?feature=player_embedded&v=iF502iJKTIY" target="_blank"><img src="http://img.youtube.com/vi/iF502iJKTIY/0.jpg" alt="Proximal Policy Gradient in CARLA 0.9.5" width="240" height="180" border="10" /></a>
 
 ## Contributions
 
@@ -32,52 +33,138 @@ This paper by researchers at Wayve describes a method that showed how state repr
 2. [https://towardsdatascience.com/learning-to-drive-smoothly-in-minutes-450a7cdb35f4](Learning to Drive Smoothly in Minutes) by Raffin _et. al._ This medium articles lays out the details of a method that was able to train an agent in a Donkey Car simulator in only 5 minutes, using a similar approach as (1). They further provide some solutions to the unstable steering we may observe when we train with the straight forward speed-as-reward reward formulation of Kendall.
 3. [https://arxiv.org/abs/1710.02410](End-to-end Driving via Conditional Imitation Learning) by Codevilla _et. al._ This paper outlines an imitation learning model that is able to learn to navigate arbitrary routes by using multiple actor networks, conditioned on what the current manouver the vehicle should take is. We have used a similar approach in our route environment agent.
 
-# How to Run
+# Method Overview
 
-## Prerequisites
-
-CARLA 0.9.5
-Tensorflow 1.13
-GPU with at least 4 GB VRAM
-
-## 
-
-Training
-
-Evaluation
-
-Collecting data
-
-Training VAE
-
-Inspecting VAE
-
-Inspecting agent
-
-TensorBoard
-
-# File Overview
-
-# Method
-
-## Quick Overview
-
-This is a high-level overview of our default approach.
+This is a high-level overview of the standard approach.
 
 1. Collect 10k 160x80x3 images by driving around manually.
 2. Train a VAE to reconstruct the images.
 3. Use the output of the trained VAE + (steering, throttle, speed) as input to a PPO-based agent.
 
-## Analysis
+TODO images here
 
-### Reward functions
+# How to Run
 
-### Fail faster
+## Prerequisites
 
-### VAE trained on semantic maps
+- Python 3.6
+- [CARLA 0.9.5](https://github.com/carla-simulator/carla/tree/0.9.5) (may also work with later versions)
+    - Our code expects the CARLA python API to be installed and available through `import carla`. TODO: instructions on installing the .egg file
+- [TensorFlow for GPU](https://www.tensorflow.org/) (we have used version 1.13, may work with later versions)
+- [OpenAI gym](https://github.com/openai/gym)
+- A GPU with at least 4 GB VRAM (we used a GeForce GTX 970)
 
-### Exploration Noise
+## Running a Trained Agent
 
-### Environment Synchroncity
+With the project, we provide one pretrained PPO agent for the lap environment.
+The checkpoint files for this model is located in the `models` folder.
+
+To run this agent, we first need to start CARLA beforehand. Assuming that
+CARLA was build as a stand alone package, we can start CARLA by the following command:
+
+```
+./CarlaUE4.sh Town07 -benchmark -fps=30
+```
+
+Note that the parameters `-benchmark -fps=30` indicate that we will use a synchounous environment with a delta time of `1/30`.
+We should use a synchounous environment with `fps=30` when running the trained agent because the agent was trained in a synchounous environment with the same value for FPS.
+
+Note our environment is only designed to work with Town07 since this map is the one that closest
+resembles the environments used in previous works.
+
+Note that it might be necesary to add the following line to `Unreal/CarlaUE4/Config/DefaultGame.ini`
+to have the map be included when running `make package`:
+
+```
+    +MapsToCook=(FilePath="/Game/Carla/Maps/Town07")
+```
+
+Once the CARLA environment is up and running, use the following command to run the trained agent:
+
+```
+python run_eval.py --model_name TODO
+```
+
+## Training a New Agent
+
+Start CARLA as is described in "Running a Trained Agent."
+
+Once the CARLA environment is up and running, use the following command to train a new agent:
+
+```
+python train.py --model_name name_of_your_model
+```
+
+## Collecting Data
+
+If you wish to collect data to train the variational autoencoder yourself, please use the
+following command:
+
+```
+python CarlaEnv/collect_data.py TODO
+```
+
+Press SPACE to begin recording frames.
+
+## Training VAE
+
+After you have collected data to train the VAE with, use the following command to train the VAE:
+
+```
+python vae/train_vae.py TODO
+```
+
+## Inspecting VAE
+
+Once we have a trained VAE, we can use the following commad to inspect how its reconstructions look (depends on python tk:)
+
+```
+python vae/inspect_vae.py TODO
+```
+
+## Inspecting agent
+
+We may also use the following command to see how a trained agent will behave to changes in latent space vector z by running:
+
+```
+python inspect_agent.py TODO
+```
+
+## TensorBoard
+
+To see and compare trained agents with TensorBoard, use the following command:
+
+```
+tensorboard --logdir logs/
+```
+
+To see and compare trained VAEs with TensorBoard, use the following command:
+
+```
+tensorboard --logdir vae/logs/
+```
+
+# File Overview
 
 
+
+# Analysis
+
+Here we have summarized the main findings and reasoning behind various design decisions.
+
+## Reward functions
+
+## Fail faster
+
+## VAE trained on semantic maps
+
+## Exploration Noise
+
+## Environment Synchroncity
+
+# Cite this Project
+
+TODO
+
+
+TODO: Paste in gramarly
