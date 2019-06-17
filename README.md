@@ -17,7 +17,7 @@ Find a [detailed project write-up here (thesis).](TODO)
 Video of results:
 
 <p align="center">
-<a href="http://www.youtube.com/watch?feature=player_embedded&v=iF502iJKTIY" target="_blank"><img src="http://img.youtube.com/vi/iF502iJKTIY/0.jpg" alt="Proximal Policy Gradient in CARLA 0.9.5" width="240" height="180" border="10" /></a>
+<a href="http://www.youtube.com/watch?feature=player_embedded&v=iF502iJKTIY" target="_blank"><img src="http://img.youtube.com/vi/iF502iJKTIY/0.jpg" alt="Proximal Policy Gradient in CARLA 0.9.5" width="480" height="360" border="0" /></a>
 </p>
 
 Use the timestaps in the description to navigate to the experiments of your interest.
@@ -32,7 +32,7 @@ Use the timestaps in the description to navigate to the experiments of your inte
 - We have devised a model that can reliably solve the lap environment in ~8 hours on average on a Nvidia GTX 970.
 - We have provided an example of how sub-policies can be used to navigate with PPO, and we found it to have moderately success in the route environment (TODO add code for this).
 
-* While there are existing examples of gym-like environments for CARLA, there is no implementation that is officially endorsed by CARLA. Furthermore, most of the third-party environments do not provide an example of an agent that works out-of-the-box, or they may use outdated reinforcement learning algorithms, such as Deep Q-learning.
+\* While there are existing examples of gym-like environments for CARLA, there is no implementation that is officially endorsed by CARLA. Furthermore, most of the third-party environments do not provide an example of an agent that works out-of-the-box, or they may use outdated reinforcement learning algorithms, such as Deep Q-learning.
 
 ## Related Work
 
