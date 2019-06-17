@@ -10,16 +10,16 @@ complex environments, with a focus on providing a solution that:
 2. Learns in the shortest time posible, to make it easier to quickly iterate on and test our hypoteses.
 3. Provides the nessecary metrics to compare agents between runs.
 
-We have used the urban driving simulator [TODO](CARLA) (version 0.9.5) as our environment.
+We have used the urban driving simulator [CALRA](http://carla.org/) (version 0.9.5) as our environment.
 
-Find a [TODO](detailed project write-up here (thesis).)
+Find a [detailed project write-up here (thesis).](TODO)
 
 TODO video link
 
 ## Contributions
 
-- We provide two gym-like environments for CARLA, one that focuses on following a predetermined lap (see [TODO](CarlaEnv/carla_lap_env.py),) and another that is focused on training agents that can navigate from point A to point B (see [TODO](CarlaEnv/carla_route_env.py). While there are existing examples of gym-like environments for CARLA, there is no implementation that is officially endorsed by CARLA. Furthermore, most of the third-party environments do not provide an example of an agent that works out-of-the-box, or they may use outdated reinforcement learning algorithms, such as Deep Q-learning.
-- We have provided analysis of optimal PPO parameters, environment designs, reward functions, etc. with the aim of finding the optimal setup to train reinforcement learning based autonomous driving agents (see Results chapter of [TODO](the project write-up) for further details.)
+- We provide two gym-like environments for CARLA, one that focuses on following a predetermined lap (see [CarlaEnv/carla_lap_env.py](CarlaEnv/carla_lap_env.py),) and another that is focused on training agents that can navigate from point A to point B (see [CarlaEnv/carla_route_env.py](CarlaEnv/carla_route_env.py). While there are existing examples of gym-like environments for CARLA, there is no implementation that is officially endorsed by CARLA. Furthermore, most of the third-party environments do not provide an example of an agent that works out-of-the-box, or they may use outdated reinforcement learning algorithms, such as Deep Q-learning.
+- We have provided analysis of optimal PPO parameters, environment designs, reward functions, etc. with the aim of finding the optimal setup to train reinforcement learning based autonomous driving agents (see Results chapter of [the project write-up](TODO) for further details.)
 - We have provided an example that shows how VAEs can be used with CARLA for reinforcement learning purposes.
 - We have shown that how we train and use a VAE can be consequential to the performance of a deep reinforcement learning agent, and have found that major improvements can be made by training the VAE to reconstruct semantic segmentation maps instead of reconstructing the RGB input itself. Training the VAE this way ensures that the VAE has a greater focus on encoding the semantics of the environment, which further aids in the learning of state representation learning-based agents.
 - We have used our findings to devise a model that can reliably solve the CARLA lap environment in approximately 8 hours on average on a Nvidia GTX 970.
