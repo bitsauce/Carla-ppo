@@ -14,16 +14,23 @@ We have used the urban driving simulator [CALRA](http://carla.org/) (version 0.9
 
 Find a [detailed project write-up here (thesis).](TODO)
 
-Video of results (use the timestaps in the description to navigate to the relevant experiments.)
+Video of results:
+
+<p align="center">
 <a href="http://www.youtube.com/watch?feature=player_embedded&v=iF502iJKTIY" target="_blank"><img src="http://img.youtube.com/vi/iF502iJKTIY/0.jpg" alt="Proximal Policy Gradient in CARLA 0.9.5" width="240" height="180" border="10" /></a>
+</p>
+
+Use the timestaps in the description to navigate to the experiments of your interest.
 
 ## Contributions
 
-- We provide two gym-like environments for CARLA, one that focuses on following a predetermined lap (see [CarlaEnv/carla_lap_env.py](CarlaEnv/carla_lap_env.py),) and another that is focused on training agents that can navigate from point A to point B (see [CarlaEnv/carla_route_env.py](CarlaEnv/carla_route_env.py). While there are existing examples of gym-like environments for CARLA, there is no implementation that is officially endorsed by CARLA. Furthermore, most of the third-party environments do not provide an example of an agent that works out-of-the-box, or they may use outdated reinforcement learning algorithms, such as Deep Q-learning.
-- We have provided analysis of optimal PPO parameters, environment designs, reward functions, etc. with the aim of finding the optimal setup to train reinforcement learning based autonomous driving agents (see Results chapter of [the project write-up](TODO) for further details.)
-- We have provided an example that shows how VAEs can be used with CARLA for reinforcement learning purposes.
-- We have shown that how we train and use a VAE can be consequential to the performance of a deep reinforcement learning agent, and have found that major improvements can be made by training the VAE to reconstruct semantic segmentation maps instead of reconstructing the RGB input itself. Training the VAE this way ensures that the VAE has a greater focus on encoding the semantics of the environment, which further aids in the learning of state representation learning-based agents.
-- We have used our findings to devise a model that can reliably solve the CARLA lap environment in approximately 8 hours on average on a Nvidia GTX 970.
+- We provide two gym-like environments for CARLA:
+    1. An environment that focuses on following a predetermined lap (see [CarlaEnv/carla_lap_env.py](CarlaEnv/carla_lap_env.py))
+    2. An environment that is focused on training agents that can navigate from point A to point B (see [CarlaEnv/carla_route_env.py](CarlaEnv/carla_route_env.py).
+  While there are existing examples of gym-like environments for CARLA, there is no implementation that is officially endorsed by CARLA. Furthermore, most of the third-party environments do not provide an example of an agent that works out-of-the-box, or they may use outdated reinforcement learning algorithms, such as Deep Q-learning.
+- We provide analysis of optimal PPO parameters, environment designs, reward functions, etc. with the aim of finding the optimal setup to train reinforcement learning based autonomous driving agents (see Chapter 4 of [the project write-up](TODO) for further details.)
+- We have shown that how we train and use a VAE can be consequential to the performance of a deep reinforcement learning agent, and we have found that major improvements can be made by training the VAE to reconstruct semantic segmentation maps instead of reconstructing the RGB input itself.
+- We have devised a model that can reliably solve the lap environment in ~8 hours on average on a Nvidia GTX 970.
 - We have provided an example of how sub-policies can be used to navigate with PPO, and we found it to have moderately success in the route environment (TODO add code for this).
 
 ## Related Work
@@ -50,6 +57,7 @@ TODO images here
 - Python 3.6
 - [CARLA 0.9.5](https://github.com/carla-simulator/carla/tree/0.9.5) (may also work with later versions)
     - Our code expects the CARLA python API to be installed and available through `import carla`. TODO: instructions on installing the .egg file
+    - Note that the map we use, Town07, may not be include by default when running `make package`. Add `+MapsToCook=(FilePath="/Game/Carla/Maps/Town07")` to `Unreal/CarlaUE4/Config/DefaultGame.ini` before running `make package` to solve this.
 - [TensorFlow for GPU](https://www.tensorflow.org/) (we have used version 1.13, may work with later versions)
 - [OpenAI gym](https://github.com/openai/gym)
 - A GPU with at least 4 GB VRAM (we used a GeForce GTX 970)
@@ -69,15 +77,8 @@ CARLA was build as a stand alone package, we can start CARLA by the following co
 Note that the parameters `-benchmark -fps=30` indicate that we will use a synchounous environment with a delta time of `1/30`.
 We should use a synchounous environment with `fps=30` when running the trained agent because the agent was trained in a synchounous environment with the same value for FPS.
 
-Note our environment is only designed to work with Town07 since this map is the one that closest
+Note our environment is only designed to work with `Town07` since this map is the one that closest
 resembles the environments used in previous works.
-
-Note that it might be necesary to add the following line to `Unreal/CarlaUE4/Config/DefaultGame.ini`
-to have the map be included when running `make package`:
-
-```
-    +MapsToCook=(FilePath="/Game/Carla/Maps/Town07")
-```
 
 Once the CARLA environment is up and running, use the following command to run the trained agent:
 
@@ -87,7 +88,7 @@ python run_eval.py --model_name TODO
 
 ## Training a New Agent
 
-Start CARLA as is described in "Running a Trained Agent."
+Start CARLA as is described in (Running a Trained Agent)[#running-a-trained-agent].
 
 Once the CARLA environment is up and running, use the following command to train a new agent:
 
@@ -146,9 +147,7 @@ tensorboard --logdir vae/logs/
 
 # File Overview
 
-
-
-# Analysis
+# Summary of Results
 
 Here we have summarized the main findings and reasoning behind various design decisions.
 
@@ -162,9 +161,11 @@ Here we have summarized the main findings and reasoning behind various design de
 
 ## Environment Synchroncity
 
+# Future Work
+
 # Cite this Project
 
-TODO
+Citation will be provided as soon as the project write-up is officially published.
 
 
 TODO: Paste in gramarly
