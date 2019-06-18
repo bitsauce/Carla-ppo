@@ -62,7 +62,6 @@ TODO images here
 - [TensorFlow for GPU](https://www.tensorflow.org/) (we have used version 1.13, may work with later versions)
 - [OpenAI gym](https://github.com/openai/gym)
 - [OpenCV for Python](https://pypi.org/project/opencv-python/) (TODO insert our version)
-- [TKinter](https://pypi.org/project/opencv-python/) (TODO insert our version)
 - A GPU with at least 4 GB VRAM (we used a GeForce GTX 970)
 
 ## Running a Trained Agent
@@ -166,6 +165,8 @@ Here we have summarized the main findings and reasoning behind various design de
 TODO insert reward figure
 
 TODO insert reward functions
+
+![Reward 5][doc/reward5_formula.png]
 
 In our experiments, we have found that the reward function to give the best results
 in terms of creating agents that drive in the center of the lane, and at a constant
