@@ -166,7 +166,9 @@ TODO insert reward figure
 
 TODO insert reward functions
 
-![Reward 5][doc/reward5_formula.png]
+<p align="center">
+  <img width="500" src="doc/reward5_formula.png">
+</p>
 
 In our experiments, we have found that the reward function to give the best results
 in terms of creating agents that drive in the center of the lane, and at a constant
