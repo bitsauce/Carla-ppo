@@ -156,7 +156,86 @@ python inspect_agent.py TODO
 
 # File Overview
 
-# Summary of Results
+train.py
+Script for training a PPO agent in the lap environment
+
+run_eval.py
+Script for running a trained model in eval mode
+
+utils.py
+Various mathematical, tensorflow, DRL utility functions
+
+ppo.py
+Script that defines the PPO model
+
+common.py
+File containing all reward fomulations and other functions directly related to
+reward functions and state spaces.
+
+inspect_agent.py
+Script that can be used to inspect the behaviour of the agent as
+the VAE's latent space vector z is annealed.
+
+vae/
+This folder contains all variational autoencoder related code.
+
+vae/train_vae.py
+Script that trains a variational autoencoder.
+
+vae/models.py
+Python file containing code for constructing MLP and CNN-based VAE models.
+
+vae/inspect_vae.py
+Script used to inspect how latent space vector z affects the reconstructions
+of a trained VAE.
+
+vae/data/
+Folder containing the data (images) that were used when training the VAE model
+that is bundled with the repo.
+
+vae/models/
+Folder containing trained models and tensorboard logs.
+
+doc/
+Folder containing figures that are used in this readme,
+in addition to a PDF version of the accompanying thesis
+for this repo.
+
+CarlaEnv/
+Folder containing code that is related to the CARLA environments.
+
+CarlaEnv/carla_lap_env.py
+File containing code for the CarlaLapEnv class
+
+CarlaEnv/carla_route_env.py
+File containing code for the CarlaRouteEnv class
+
+CarlaEnv/collect_data.py
+TODO Move to root?
+Script that is used to manually drive a car in the environment to
+collect images that can be used to train a VAE.
+
+CarlaEnv/hud.py
+Code for the HUD that is displayed on the left-hand-side of the spectating window.
+
+CarlaEnv/keyboard_control.py
+TODO wasn't this file removed?
+
+CarlaEnv/planner.py
+Global route planner used to find routes from A to B.
+TODO insert link to source
+
+CarlaEnv/wrappers.py
+File containing wrapper classes for several CARLA classes.
+
+CarlaEnv/agents/
+Contains code that is used by the route planner (TODO verify that these files are necessary).
+TODO insert link to source
+
+models/
+Folder containing trained model weights and tensorboard log files
+
+# Summary of Environment and Agent Design
 
 Here we have summarized the main findings and reasoning behind various design decisions.
 
