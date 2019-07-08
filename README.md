@@ -1,5 +1,7 @@
 # CARLA PPO agent
 
+THIS DOCUMENT IS A WIP
+
 ## About the Project
 This project concerns how we may design environments in order to facilitate the training of
 deep reinforcement learning based autonomous driving agents. The goal of the project is to
