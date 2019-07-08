@@ -1,6 +1,6 @@
 # CARLA PPO agent
 
-THIS DOCUMENT IS A WIP
+THIS DOCUMENT IS A WORK-IN-PROGRESS
 
 ## About the Project
 This project concerns how we may design environments in order to facilitate the training of
