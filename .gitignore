@@ -108,4 +108,4 @@ venv.bak/
 
 # model folders
 /models/*
-!/models/pretrained_agent/
+!/models/pretrained_subpolicy_agent/
