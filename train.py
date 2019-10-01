@@ -5,7 +5,6 @@ import shutil
 import numpy as np
 import tensorflow as tf
 
-from CarlaEnv.carla_lap_env import CarlaLapEnv as CarlaEnv
 from vae_common import create_encode_state_fn, load_vae
 from ppo import PPO
 from reward_functions import reward_functions
