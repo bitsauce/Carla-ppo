@@ -47,10 +47,10 @@ Use the timestaps in the description to navigate to the experiments of your inte
 
 ## Related Work
 
-1. [https://arxiv.org/abs/1807.00412](Learning to Drive in a Day) by Kendall _et. al._
+1. [Learning to Drive in a Day](https://arxiv.org/abs/1807.00412) by Kendall _et. al._
 This paper by researchers at Wayve describes a method that showed how state representation learning through a variational autoencoder can be used to train a car to follow a straight country road in approximately 15 minutes.
-2. [https://towardsdatascience.com/learning-to-drive-smoothly-in-minutes-450a7cdb35f4](Learning to Drive Smoothly in Minutes) by Raffin _et. al._ This medium articles lays out the details of a method that was able to train an agent in a Donkey Car simulator in only 5 minutes, using a similar approach as (1). They further provide some solutions to the unstable steering we may observe when we train with the straight forward speed-as-reward reward formulation of Kendall.
-3. [https://arxiv.org/abs/1710.02410](End-to-end Driving via Conditional Imitation Learning) by Codevilla _et. al._ This paper outlines an imitation learning model that is able to learn to navigate arbitrary routes by using multiple actor networks, conditioned on what the current manouver the vehicle should take is. We have used a similar approach in our route environment agent.
+2. [Learning to Drive Smoothly in Minutes](https://towardsdatascience.com/learning-to-drive-smoothly-in-minutes-450a7cdb35f4) by Raffin _et. al._ This medium articles lays out the details of a method that was able to train an agent in a Donkey Car simulator in only 5 minutes, using a similar approach as (1). They further provide some solutions to the unstable steering we may observe when we train with the straight forward speed-as-reward reward formulation of Kendall.
+3. [End-to-end Driving via Conditional Imitation Learning](https://arxiv.org/abs/1710.02410) by Codevilla _et. al._ This paper outlines an imitation learning model that is able to learn to navigate arbitrary routes by using multiple actor networks, conditioned on what the current manouver the vehicle should take is. We have used a similar approach in our route environment agent.
 
 # Method Overview
 
@@ -219,7 +219,7 @@ In our experiments, we have found that the reward function to give the best resu
 in terms of creating agents that drive in the center of the lane, and at a constant
 target speed of 20 kmh, was reward 5.
 
-The idea behind this reward function is that...
+The idea behind this reward function is that... TODO
 
 ## Fail Faster Through Checkpoints
 
@@ -262,10 +262,22 @@ TODO
 
 # Future Work
 
-Explore different state representations, particularly models that take into account temporal aspects of driving.
+Here are a couple of ideas of how our work can be expanded or improved on:
+
+- Temporal models such as World Models or other LSTM models
+- Better state representations (higher resolution, sensor fusion with LiDAR, etc.)
+- Improve exploration (random distilation networks, ornstein uhllenbeck noise, etc.)
+- Enforcing smooth driving e.g. through reward functions that penalize fluctuating actions
+- Multi-agent training, or training with other vehicles on the road
+- Making the agent obey trafic rules
+
+# Known Issues
+
+- Seed does not make simulations deterministic, even in a synchronous environment
+- Environment do not strictly confine to OpenAI gym's standard, meaning it cannot be used directly with their alogorithms without modification
 
 # Cite this Project
 
-Citation will be provided as soon as the write-up is officially published (Expected mid-August.)
+Citation will be provided as soon as the thesis is officially published.
 
 TODO: Paste in gramarly
