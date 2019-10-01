@@ -5,7 +5,6 @@ import shutil
 import numpy as np
 import tensorflow as tf
 
-from CarlaEnv.carla_lap_env import CarlaLapEnv as CarlaEnv
 from vae_common import create_encode_state_fn, load_vae
 from ppo import PPO
 from reward_functions import reward_functions
@@ -88,7 +87,7 @@ def train(params, start_carla=True, restart=False):
 
     # Create model
     print("Creating model")
-    model = PPO(input_shape, env.action_space,
+    model = PPO(input_shape, env.action_space, num_sub_policies=4,
                 learning_rate=learning_rate, lr_decay=lr_decay,
                 epsilon=ppo_epsilon, initial_std=initial_std,
                 value_scale=value_scale, entropy_scale=entropy_scale,
@@ -138,9 +137,10 @@ def train(params, start_carla=True, restart=False):
         # While episode not done
         print(f"Episode {episode_idx} (Step {model.get_train_step_idx()})")
         while not terminal_state:
-            states, taken_actions, values, rewards, dones = [], [], [], [], []
+            states, taken_actions, values, rewards, dones, sub_policies = [], [], [], [], [], []
             for _ in range(horizon):
-                action, value = model.predict(state, write_to_summary=True)
+                sub_policy = env.current_road_maneuver.value - 1
+                action, value = model.predict(state, sub_policy, write_to_summary=True)
 
                 # Perform action
                 new_state, reward, terminal_state, info = env.step(action)
@@ -159,18 +159,19 @@ def train(params, start_carla=True, restart=False):
                 total_reward += reward
 
                 # Store state, action and reward
-                states.append(state)         # [T, *input_shape]
-                taken_actions.append(action) # [T,  num_actions]
-                values.append(value)         # [T]
-                rewards.append(reward)       # [T]
-                dones.append(terminal_state) # [T]
+                states.append(state)            # [T, *input_shape]
+                taken_actions.append(action)    # [T,  num_actions]
+                values.append(value)            # [T]
+                rewards.append(reward)          # [T]
+                dones.append(terminal_state)    # [T]
+                sub_policies.append(sub_policy) # [T]
                 state = new_state
 
                 if terminal_state:
                     break
 
             # Calculate last value (bootstrap value)
-            _, last_values = model.predict(state) # []
+            _, last_values = model.predict(state, sub_policy) # []
             
             # Compute GAE
             advantages = compute_gae(rewards, values, last_values, dones, discount_factor, gae_lambda)
@@ -182,12 +183,14 @@ def train(params, start_carla=True, restart=False):
             taken_actions = np.array(taken_actions)
             returns       = np.array(returns)
             advantages    = np.array(advantages)
+            sub_policies  = np.array(sub_policies)
 
             T = len(rewards)
             assert states.shape == (T, *input_shape)
             assert taken_actions.shape == (T, num_actions)
             assert returns.shape == (T,)
             assert advantages.shape == (T,)
+            assert sub_policies.shape == (T,)
 
             # Train for some number of epochs
             model.update_old_policy() # θ_old <- θ
@@ -205,7 +208,8 @@ def train(params, start_carla=True, restart=False):
 
                     # Optimize network
                     model.train(states[mb_idx], taken_actions[mb_idx],
-                                returns[mb_idx], advantages[mb_idx])
+                                returns[mb_idx], advantages[mb_idx],
+                                sub_policies[mb_idx])
 
         # Write episodic values
         model.write_value_to_summary("train/reward", total_reward, episode_idx)
