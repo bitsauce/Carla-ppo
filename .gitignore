@@ -103,9 +103,9 @@ venv.bak/
 # mypy
 .mypy_cache/
 
+# vscode
 /.vscode/
-/models/
-/experiments/
-/logs/
-/videos/
-/vae/logs/
+
+# model folders
+/models/*
+!/models/pretrained_agent/

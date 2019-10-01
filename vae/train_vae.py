@@ -118,13 +118,13 @@ if __name__ == "__main__":
     # Prompt to load existing model if any
     if not args.restart:
         if os.path.isdir(vae.log_dir) and len(os.listdir(vae.log_dir)) > 0:
-            answer = input("Model \"{}\" already exists. Do you wish to continue (C) or restart training (R)? ".format(model_name))
+            answer = input("Model \"{}\" already exists. Do you wish to continue (C) or restart training (R)? ".format(args.model_name))
             if answer.upper() == "C":
                 pass
             elif answer.upper() == "R":
                 args.restart = True
             else:
-                raise Exception("There are already log files for model \"{}\". Please delete it or change model_name and try again".format(model_name))
+                raise Exception("There are already log files for model \"{}\". Please delete it or change model_name and try again".format(args.model_name))
     
     if args.restart:
         shutil.rmtree(vae.model_dir)

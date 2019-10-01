@@ -1,14 +1,16 @@
-import pygame
-from pygame.locals import *
+import os
+import subprocess
+import time
+
 import carla
 import gym
-import time
-import random
-from collections import deque
+import pygame
 from gym.utils import seeding
-from wrappers import *
+from pygame.locals import *
+
 from hud import HUD
-from planner import compute_route_waypoints, RoadOption
+from planner import RoadOption, compute_route_waypoints
+from wrappers import *
 
 # TODO:
 # - Some solution to avoid using the same env instance for training and eval
@@ -21,19 +23,20 @@ class CarlaLapEnv(gym.Env):
         around the outskirts of Town07. This environment can be used to compare
         different models/reward functions in a realtively predictable environment.
 
-        To run this environment in asynchronous mode, start CARLA beforehand with:
+        To run an agent in this environment, either start start CARLA beforehand with:
 
-        $> ./CarlaUE4.sh Town07
+        Synchronous:  $> ./CarlaUE4.sh Town07 -benchmark -fps=30
+        Asynchronous: $> ./CarlaUE4.sh Town07
 
-        Or, if you want to run in synchronous mode, use the following command:
+        Or, pass argument -start_carla in the command-line.
+        Note that ${CARLA_ROOT} needs to be set to CARLA's top-level directory
+        in order for this option to work.
 
-        $> ./CarlaUE4.sh Town07 -benchmark -fps=30
-
-        And also remember to change the -fps argument to match the fps of the environment
-        and set synchronous to True, e.g. CarlaLapEnv(..., fps=30, synchronous=True)
+        And also remember to set the -fps and -synchronous arguments to match the
+        command-line arguments of the simulator (not needed with -start_carla.) 
         
-        I also needed to add the following line to Unreal/CarlaUE4/Config/DefaultGame.ini
-        to get the map to be included in the package:
+        Note that you may also need to add the following line to
+        Unreal/CarlaUE4/Config/DefaultGame.ini to have the map included in the package:
         
         +MapsToCook=(FilePath="/Game/Carla/Maps/Town07")
     """
@@ -42,8 +45,11 @@ class CarlaLapEnv(gym.Env):
         "render.modes": ["human", "rgb_array", "rgb_array_no_hud", "state_pixels"]
     }
 
-    def __init__(self, host="127.0.0.1", port=2000, viewer_res=(1280, 720), obs_res=(1280, 720),
-                 reward_fn=None, encode_state_fn=None, action_smoothing=0.9, fps=30, synchronous=True):
+    def __init__(self, host="127.0.0.1", port=2000,
+                 viewer_res=(1280, 720), obs_res=(1280, 720),
+                 reward_fn=None, encode_state_fn=None, 
+                 synchronous=True, fps=30, action_smoothing=0.9,
+                 start_carla=True):
         """
             Initializes a gym-like environment that can be used to interact with CARLA.
 
@@ -79,7 +85,39 @@ class CarlaLapEnv(gym.Env):
                 otherwise they will tick as fast as possible.
             synchronous (bool):
                 If True, run in synchronous mode (read the comment above for more info)
+            start_carla (bool):
+                Automatically start CALRA when True. Note that you need to
+                set the environment variable ${CARLA_ROOT} to point to
+                the CARLA root directory for this option to work.
         """
+
+        # Start CARLA from CARLA_ROOT
+        self.carla_process = None
+        if start_carla:
+            if "CARLA_ROOT" not in os.environ:
+                raise Exception("${CARLA_ROOT} has not been set!")
+            dist_dir = os.path.join(os.environ["CARLA_ROOT"], "Dist")
+            if not os.path.isdir(dist_dir):
+                raise Exception("Expected to find directory \"Dist\" under ${CARLA_ROOT}!")
+            sub_dirs = [os.path.join(dist_dir, sub_dir) for sub_dir in os.listdir(dist_dir) if os.path.isdir(os.path.join(dist_dir, sub_dir))]
+            if len(sub_dirs) == 0:
+                raise Exception("Could not find a packaged distribution of CALRA! " +
+                                "(try building CARLA with the \"make package\" " +
+                                "command in ${CARLA_ROOT})")
+            sub_dir = sub_dirs[0]
+            carla_path = os.path.join(sub_dir, "LinuxNoEditor", "CarlaUE4.sh")
+            launch_command = [carla_path]
+            launch_command += ["Town07"]
+            if synchronous: launch_command += ["-benchmark"]
+            launch_command += ["-fps=%i" % fps]
+            print("Running command:")
+            print(" ".join(launch_command))
+            self.carla_process = subprocess.Popen(launch_command, stdout=subprocess.PIPE, universal_newlines=True)
+            print("Waiting for CARLA to initialize")
+            for line in self.carla_process.stdout:
+                if "LogCarla: Number Of Vehicles" in line:
+                    break
+            time.sleep(2)
 
         # Initialize pygame for visualization
         pygame.init()
@@ -107,7 +145,7 @@ class CarlaLapEnv(gym.Env):
         try:
             # Connect to carla
             self.client = carla.Client(host, port)
-            self.client.set_timeout(2.0)
+            self.client.set_timeout(60.0)
 
             # Create world wrapper
             self.world = World(self.client)
@@ -118,7 +156,8 @@ class CarlaLapEnv(gym.Env):
                 self.world.apply_settings(settings)
 
             # Get spawn location
-            lap_start_wp = self.world.map.get_waypoint(carla.Location(x=-180.0, y=110))
+            #lap_start_wp = self.world.map.get_waypoint(carla.Location(x=-180.0, y=110))
+            lap_start_wp = self.world.map.get_waypoint(self.world.map.get_spawn_points()[1].location)
             spawn_transform = lap_start_wp.transform
             spawn_transform.location += carla.Location(z=1.0)
 
@@ -216,6 +255,8 @@ class CarlaLapEnv(gym.Env):
         return self.step(None)[0]
 
     def close(self):
+        if self.carla_process:
+            self.carla_process.terminate()
         pygame.quit()
         if self.world is not None:
             self.world.destroy()
@@ -228,7 +269,7 @@ class CarlaLapEnv(gym.Env):
         elif self.current_road_maneuver == RoadOption.RIGHT:    maneuver = "Right"
         elif self.current_road_maneuver == RoadOption.STRAIGHT: maneuver = "Straight"
         elif self.current_road_maneuver == RoadOption.VOID:     maneuver = "VOID"
-        else:                                                   maneuver = "INVALID"
+        else:                                                   maneuver = "INVALID(%i)" % self.current_road_maneuver
 
         # Add metrics to HUD
         self.extra_info.extend([
@@ -427,12 +468,17 @@ def reward_fn(env):
     early_termination = False
     if early_termination:
         # If speed is less than 1.0 km/h after 5s, stop
-        if time.time() - env.start_t > 5.0 and speed < 1.0 / 3.6:
+        if time.time() - env.start_t > 5.0 and env.vehicle.get_speed() < 1.0 / 3.6:
             env.terminal_state = True
 
         # If distance from center > 3, stop
         if env.distance_from_center > 3.0:
             env.terminal_state = True
+        
+    fwd    = vector(env.vehicle.get_velocity())
+    wp_fwd = vector(env.current_waypoint.transform.rotation.get_forward_vector())
+    if np.dot(fwd[:2], wp_fwd[:2]) > 0:
+        return env.vehicle.get_speed()
     return 0
 
 if __name__ == "__main__":

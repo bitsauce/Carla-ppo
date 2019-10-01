@@ -36,7 +36,7 @@ vae = VAEClass(source_shape=source_shape,
                training=False)
 vae.init_session(init_logging=False)
 if not vae.load_latest_checkpoint():
-    print("Failed to load latest checkpoint for model \"{}\"".format(args.model_name))
+    print("Failed to load latest checkpoint for model \"{}\"".format(args.model_dir))
 
 class UI():
     def __init__(self, z_dim, generate_fn, slider_range=3, image_scale=4):

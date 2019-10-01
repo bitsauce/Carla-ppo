@@ -229,6 +229,12 @@ class PPO():
         self.sess.run(self.train_step_counter.inc_op) # Inc step counter
         
     def predict(self, input_states, greedy=False, write_to_summary=False):
+        # Extend input axis 0 if no batch dim
+        input_states = np.asarray(input_states)
+        if len(input_states.shape) != 2:
+            input_states = [input_states]
+            
+        # Predict action
         action = self.policy.action_mean if greedy else self.policy.sampled_action
         sampled_action, value, summaries, step_idx = \
             self.sess.run([action, self.policy.value, self.stepwise_prediction_summaries, self.predict_step_counter.var],
@@ -239,7 +245,7 @@ class PPO():
             self.train_writer.add_summary(summaries, step_idx)
             self.sess.run(self.predict_step_counter.inc_op)
 
-        # Squeeze output if 1 element
+        # Squeeze output if output has one element
         if len(input_states) == 1:
             return sampled_action[0], value[0]
         return sampled_action, value

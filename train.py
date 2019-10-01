@@ -1,27 +1,28 @@
 import os
 import random
-import re
 import shutil
-import time
-from collections import deque
 
-import cv2
-import gym
-import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
-from skimage import transform
 
-from ppo import PPO
-from vae.models import ConvVAE, MlpVAE
 from CarlaEnv.carla_lap_env import CarlaLapEnv as CarlaEnv
-from CarlaEnv.wrappers import angle_diff, vector
-from utils import VideoRecorder, compute_gae
-from common import reward_fn, create_encode_state_fn, preprocess_frame, load_vae
+from vae_common import create_encode_state_fn, load_vae
+from ppo import PPO
+from reward_functions import reward_functions
 from run_eval import run_eval
+from utils import compute_gae
+from vae.models import ConvVAE, MlpVAE
 
-def train(params, model_name, eval_interval=10, record_eval=True, restart=False):
-    # Traning parameters
+USE_ROUTE_ENVIRONMENT = False
+
+if USE_ROUTE_ENVIRONMENT:
+    from CarlaEnv.carla_route_env import CarlaRouteEnv as CarlaEnv
+else:
+    from CarlaEnv.carla_lap_env import CarlaLapEnv as CarlaEnv
+
+
+def train(params, start_carla=True, restart=False):
+    # Read parameters
     learning_rate    = params["learning_rate"]
     lr_decay         = params["lr_decay"]
     discount_factor  = params["discount_factor"]
@@ -34,11 +35,23 @@ def train(params, model_name, eval_interval=10, record_eval=True, restart=False)
     num_epochs       = params["num_epochs"]
     num_episodes     = params["num_episodes"]
     batch_size       = params["batch_size"]
-    fps              = params["fps"]
-    action_smoothing = params["action_smoothing"]
     vae_model        = params["vae_model"]
     vae_model_type   = params["vae_model_type"]
     vae_z_dim        = params["vae_z_dim"]
+    synchronous      = params["synchronous"]
+    fps              = params["fps"]
+    action_smoothing = params["action_smoothing"]
+    model_name       = params["model_name"]
+    reward_fn        = params["reward_fn"]
+    seed             = params["seed"]
+    eval_interval    = params["eval_interval"]
+    record_eval      = params["record_eval"]
+
+    # Set seeds
+    if isinstance(seed, int):
+        tf.random.set_random_seed(seed)
+        np.random.seed(seed)
+        random.seed(0)
 
     # Load VAE
     vae = load_vae(vae_model, vae_z_dim, vae_model_type)
@@ -58,10 +71,15 @@ def train(params, model_name, eval_interval=10, record_eval=True, restart=False)
 
     # Create env
     print("Creating environment")
-    env = CarlaEnv(obs_res=(160, 80), action_smoothing=action_smoothing,
-                   encode_state_fn=encode_state_fn, reward_fn=reward_fn,
-                   synchronous=True, fps=fps)
-    env.seed(0)
+    env = CarlaEnv(obs_res=(160, 80),
+                   action_smoothing=action_smoothing,
+                   encode_state_fn=encode_state_fn,
+                   reward_fn=reward_functions[reward_fn],
+                   synchronous=synchronous,
+                   fps=fps,
+                   start_carla=start_carla)
+    if isinstance(seed, int):
+        env.seed(seed)
     best_eval_reward = -float("inf")
 
     # Environment constants
@@ -71,7 +89,8 @@ def train(params, model_name, eval_interval=10, record_eval=True, restart=False)
     # Create model
     print("Creating model")
     model = PPO(input_shape, env.action_space,
-                learning_rate=learning_rate, lr_decay=lr_decay, epsilon=ppo_epsilon, initial_std=initial_std,
+                learning_rate=learning_rate, lr_decay=lr_decay,
+                epsilon=ppo_epsilon, initial_std=initial_std,
                 value_scale=value_scale, entropy_scale=entropy_scale,
                 model_dir=os.path.join("models", model_name))
 
@@ -111,6 +130,7 @@ def train(params, model_name, eval_interval=10, record_eval=True, restart=False)
             model.write_value_to_summary("eval/distance_over_deviation", env.distance_traveled / env.center_lane_deviation, episode_idx)
             if eval_reward > best_eval_reward:
                 model.save()
+                best_eval_reward = eval_reward
 
         # Reset environment
         state, terminal_state, total_reward = env.reset(), False, 0
@@ -120,7 +140,7 @@ def train(params, model_name, eval_interval=10, record_eval=True, restart=False)
         while not terminal_state:
             states, taken_actions, values, rewards, dones = [], [], [], [], []
             for _ in range(horizon):
-                action, value = model.predict([state], write_to_summary=True)
+                action, value = model.predict(state, write_to_summary=True)
 
                 # Perform action
                 new_state, reward, terminal_state, info = env.step(action)
@@ -132,7 +152,7 @@ def train(params, model_name, eval_interval=10, record_eval=True, restart=False)
                     "Episode {}".format(episode_idx),
                     "Training...",
                     "",
-                    "Value:  % 19.2f" % value
+                    "Value:  % 20.2f" % value
                 ])
 
                 env.render()
@@ -150,7 +170,7 @@ def train(params, model_name, eval_interval=10, record_eval=True, restart=False)
                     break
 
             # Calculate last value (bootstrap value)
-            _, last_values = model.predict([state]) # []
+            _, last_values = model.predict(state) # []
             
             # Compute GAE
             advantages = compute_gae(rewards, values, last_values, dones, discount_factor, gae_lambda)
@@ -201,50 +221,57 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Trains a CARLA agent with PPO")
 
-    # Hyper parameters
-    parser.add_argument("--learning_rate", type=float, default=1e-4)
-    parser.add_argument("--lr_decay", type=float, default=1.0)#0.98)
-    parser.add_argument("--discount_factor", type=float, default=0.99)
-    parser.add_argument("--gae_lambda", type=float, default=0.95)
-    parser.add_argument("--ppo_epsilon", type=float, default=0.2)
-    parser.add_argument("--initial_std", type=float, default=1.0)#0.1)
-    parser.add_argument("--value_scale", type=float, default=1.0)
-    parser.add_argument("--entropy_scale", type=float, default=0.01)
-    parser.add_argument("--horizon", type=int, default=128)
-    parser.add_argument("--num_epochs", type=int, default=3)
-    parser.add_argument("--num_episodes", type=int, default=0)#100)
-    parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--fps", type=int, default=30)
-    parser.add_argument("--action_smoothing", type=float, default=0.0)
-    parser.add_argument("--vae_model", type=str, default="bce_cnn_zdim64_beta1_kl_tolerance0.0_data")
-    parser.add_argument("--vae_model_type", type=str, default=None)
-    parser.add_argument("--vae_z_dim", type=int, default=None)
+    # PPO hyper parameters
+    parser.add_argument("--learning_rate", type=float, default=1e-4, help="Initial learning rate")
+    parser.add_argument("--lr_decay", type=float, default=1.0, help="Per-episode exponential learning rate decay")
+    parser.add_argument("--discount_factor", type=float, default=0.99, help="GAE discount factor")
+    parser.add_argument("--gae_lambda", type=float, default=0.95, help="GAE lambda")
+    parser.add_argument("--ppo_epsilon", type=float, default=0.2, help="PPO epsilon")
+    parser.add_argument("--initial_std", type=float, default=1.0, help="Initial value of the std used in the gaussian policy")
+    parser.add_argument("--value_scale", type=float, default=1.0, help="Value loss scale factor")
+    parser.add_argument("--entropy_scale", type=float, default=0.01, help="Entropy loss scale factor")
+    parser.add_argument("--horizon", type=int, default=128, help="Number of steps to simulate per training step")
+    parser.add_argument("--num_epochs", type=int, default=3, help="Number of PPO training epochs per traning step")
+    parser.add_argument("--batch_size", type=int, default=32, help="Epoch batch size")
+    parser.add_argument("--num_episodes", type=int, default=0, help="Number of episodes to train for (0 or less trains forever)")
 
-    # Training vars
-    parser.add_argument("--model_name", type=str, required=True)
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--eval_interval", type=int, default=5)
-    parser.add_argument("--record_eval", type=bool, default=True)
-    parser.add_argument("-restart", action="store_true")
+    # VAE parameters
+    parser.add_argument("--vae_model", type=str,
+                        default="vae/models/seg_bce_cnn_zdim64_beta1_kl_tolerance0.0_data/",
+                        help="Trained VAE model to load")
+    parser.add_argument("--vae_model_type", type=str, default=None, help="VAE model type (\"cnn\" or \"mlp\")")
+    parser.add_argument("--vae_z_dim", type=int, default=None, help="Size of VAE bottleneck")
+
+    # Environment settings
+    parser.add_argument("--synchronous", type=int, default=True, help="Set this to True when running in a synchronous environment")
+    parser.add_argument("--fps", type=int, default=30, help="Set this to the FPS of the environment")
+    parser.add_argument("--action_smoothing", type=float, default=0.0, help="Action smoothing factor")
+    parser.add_argument("-start_carla", action="store_true", help="Automatically start CALRA with the given environment settings")
+
+    # Training parameters
+    parser.add_argument("--model_name", type=str, required=True, help="Name of the model to train. Output written to models/model_name")
+    parser.add_argument("--reward_fn", type=str,
+                        default="reward_speed_centering_angle_multiply",
+                        help="Reward function to use. See reward_functions.py for more info.")
+    parser.add_argument("--seed", type=int, default=0,
+                        help="Seed to use. (Note that determinism unfortunately appears to not be garuanteed " +
+                             "with this option in our experience)")
+    parser.add_argument("--eval_interval", type=int, default=5, help="Number of episodes between evaluation runs")
+    parser.add_argument("--record_eval", type=bool, default=True,
+                        help="If True, save videos of evaluation episodes " +
+                             "to models/model_name/videos/")
+    
+    parser.add_argument("-restart", action="store_true",
+                        help="If True, delete existing model in models/model_name before starting training")
 
     params = vars(parser.parse_args())
 
-    # Remove non-hyperparameters
-    model_name = params["model_name"]; del params["model_name"]
-    seed = params["seed"]; del params["seed"]
-    eval_interval = params["eval_interval"]; del params["eval_interval"]
-    record_eval = params["record_eval"]; del params["record_eval"]
+    # Remove a couple of parameters that we dont want to log
+    start_carla = params["start_carla"]; del params["start_carla"]
     restart = params["restart"]; del params["restart"]
 
-    # Reset tf and set seed
+    # Reset tf graph
     tf.reset_default_graph()
-    if isinstance(seed, int):
-        tf.random.set_random_seed(seed)
-        np.random.seed(seed)
-        random.seed(0)
 
-    # Call main func
-    train(params, model_name,
-          eval_interval=eval_interval,
-          record_eval=record_eval,
-          restart=restart)
+    # Start training
+    train(params, start_carla, restart)

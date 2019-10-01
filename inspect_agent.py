@@ -7,44 +7,32 @@ import gym
 import numpy as np
 import argparse
 from PIL import Image, ImageTk
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 
 from ppo import PPO
 from vae.models import MlpVAE, ConvVAE
-from vae.train_vae import preprocess_frame
+from vae_common import preprocess_frame, load_vae
 
 parser = argparse.ArgumentParser(description="Visualizes the policy learned by the agent")
 
 # VAE parameters
 parser.add_argument("--model_name", type=str, required=True)
-parser.add_argument("--vae_model", type=str, default="bce_cnn_zdim64_beta1_kl_tolerance0.0_data")
+parser.add_argument("--vae_model", type=str, default="vae/models/seg_bce_cnn_zdim64_beta1_kl_tolerance0.0_data/")
 parser.add_argument("--vae_model_type", type=str, default=None)
 parser.add_argument("--vae_z_dim", type=int, default=None)
 
 args = parser.parse_args()
 
-# Get VAE model type and z_dim from name
-if args.vae_z_dim is None:      args.vae_z_dim = int(re.findall("zdim(\d+)", args.vae_model)[0])
-if args.vae_model_type is None: args.vae_model_type = "mlp" if "mlp" in args.vae_model else "cnn"
-VAEClass = MlpVAE if args.vae_model_type == "mlp" else ConvVAE
-
-# Load pre-trained variational autoencoder
-vae_input_shape = np.array([80, 160, 3])
-vae = VAEClass(input_shape=vae_input_shape, z_dim=args.vae_z_dim,
-               models_dir="vae", model_name=args.vae_model, training=False)
-vae.init_session(init_logging=False)
-if not vae.load_latest_checkpoint():
-    raise Exception("Failed to load VAE")
+# Load VAE
+vae = load_vae(args.vae_model, args.vae_z_dim, args.vae_model_type)
 
 # State encoding fn
 measurements_to_include = set(["steer", "throttle", "speed"])
 #encode_state_fn = create_encode_state_fn(vae, measurements_to_include)
 
 # Load PPO agent
-input_shape = np.array([args.vae_z_dim + len(measurements_to_include)])
+input_shape = np.array([vae.z_dim + len(measurements_to_include)])
 action_space = gym.spaces.Box(np.array([-1, 0]), np.array([1, 1]), dtype=np.float32) # steer, throttle
-model = PPO(input_shape, action_space, output_dir=os.path.join("models", args.model_name))
+model = PPO(input_shape, action_space, model_dir=os.path.join("models", args.model_name))
 model.init_session(init_logging=False)
 if not model.load_latest_checkpoint():
     raise Exception("Failed to load PPO agent")
@@ -115,7 +103,7 @@ class UI():
             slider_frame.pack(side=TOP)
 
         self.image_scale = image_scale
-        self.update_image(np.ones(vae_input_shape) * 127)
+        self.update_image(np.ones(vae.target_shape) * 127)
 
         self.browse = Button(self.window, text="Set z by image", command=self.set_z_by_image)
         self.browse.pack(side=BOTTOM, padx=50, pady=20)
@@ -169,7 +157,8 @@ class UI():
 
     def update_image(self, image_array):
         image_array = image_array.astype(np.uint8)
-        image_size = vae_input_shape[:2] * self.image_scale
+        image_size = vae.target_shape[:2] * self.image_scale
+        if image_array.shape[-1] == 1: image_array = image_array.squeeze(-1)
         pil_image = Image.fromarray(image_array)
         pil_image = pil_image.resize((image_size[1], image_size[0]), resample=Image.NEAREST)
         self.tkimage = ImageTk.PhotoImage(image=pil_image)
@@ -181,20 +170,12 @@ class UI():
 
 def generate(z, encoded_state):
     generated_image = vae.generate_from_latent([z])[0]
-    ui.update_image(generated_image.reshape(vae_input_shape) * 255)
+    ui.update_image(generated_image.reshape(vae.target_shape) * 255)
 
     # Update output action
-    action, _ = model.predict([encoded_state], greedy=True)
+    action, _ = model.predict(encoded_state, greedy=True)
     for i in range(len(action)):
         ui.action_vars[i].set(action[i])
 
 ui = UI(vae.sample.shape[1], generate, slider_range=10)
 ui.mainloop()
-
-# Load 00006070.png
-# Change z[14]
-# 51 63
-
-# Use some interface to visualize output action
-
-# Allow changing z vector

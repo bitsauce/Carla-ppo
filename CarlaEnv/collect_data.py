@@ -1,24 +1,34 @@
-import pygame
-import carla
 import os
 import shutil
+import subprocess
+
+import carla
 import gym
-from pygame.locals import *
+import pygame
 from PIL import Image
-from wrappers import *
+from pygame.locals import *
+
 from hud import HUD
+from wrappers import *
+
 
 class CarlaDataCollector:
     """
-        Start CARLA beforehand with:
+        To be able to drive in this environment, either start start CARLA beforehand with:
 
-        $> ./CarlaUE4.sh Town07 -benchmark -fps=30
+        Synchronous:  $> ./CarlaUE4.sh Town07 -benchmark -fps=30
+        Asynchronous: $> ./CarlaUE4.sh Town07
+
+        Or pass argument -start_carla in the command-line.
+        Note that ${CARLA_ROOT} needs to be set to CARLA's top-level directory
+        in order for this option to work.
     """
 
     def __init__(self, host="127.0.0.1", port=2000, 
                  viewer_res=(1280, 720), obs_res=(1280, 720),
                  num_images_to_save=10000, output_dir="images",
-                 action_smoothing=0.9, fps=30):
+                 synchronous=True, fps=30, action_smoothing=0.9,
+                 start_carla=True):
         """
             Initializes an environment that can be used to save camera/sensor data
             from driving around manually in CARLA.
@@ -47,7 +57,41 @@ class CarlaDataCollector:
                 FPS of the client. If fps <= 0 then use unbounded FPS.
                 Note: Sensors will have a tick rate of fps when fps > 0, 
                 otherwise they will tick as fast as possible.
+            synchronous (bool):
+                If True, run in synchronous mode (read the comment above for more info)
+            start_carla (bool):
+                Automatically start CALRA when True. Note that you need to
+                set the environment variable ${CARLA_ROOT} to point to
+                the CARLA root directory for this option to work.
         """
+
+        # Start CARLA from CARLA_ROOT
+        self.carla_process = None
+        if start_carla:
+            if "CARLA_ROOT" not in os.environ:
+                raise Exception("${CARLA_ROOT} has not been set!")
+            dist_dir = os.path.join(os.environ["CARLA_ROOT"], "Dist")
+            if not os.path.isdir(dist_dir):
+                raise Exception("Expected to find directory \"Dist\" under ${CARLA_ROOT}!")
+            sub_dirs = [os.path.join(dist_dir, sub_dir) for sub_dir in os.listdir(dist_dir) if os.path.isdir(os.path.join(dist_dir, sub_dir))]
+            if len(sub_dirs) == 0:
+                raise Exception("Could not find a packaged distribution of CALRA! " +
+                                "(try building CARLA with the \"make package\" " +
+                                "command in ${CARLA_ROOT})")
+            sub_dir = sub_dirs[0]
+            carla_path = os.path.join(sub_dir, "LinuxNoEditor", "CarlaUE4.sh")
+            launch_command = [carla_path]
+            launch_command += ["Town07"]
+            if synchronous: launch_command += ["-benchmark"]
+            launch_command += ["-fps=%i" % fps]
+            print("Running command:")
+            print(" ".join(launch_command))
+            self.carla_process = subprocess.Popen(launch_command, stdout=subprocess.PIPE, universal_newlines=True)
+            print("Waiting for CARLA to initialize")
+            for line in self.carla_process.stdout:
+                if "LogCarla: Number Of Vehicles" in line:
+                    break
+            time.sleep(2)
 
         # Initialize pygame for visualization
         pygame.init()
@@ -127,9 +171,12 @@ class CarlaDataCollector:
         self.hud.notification("Press \"Enter\" to start collecting data.")
 
     def close(self):
+        if self.carla_process:
+            self.carla_process.terminate()
         pygame.quit()
         if self.world is not None:
             self.world.destroy()
+        self.closed = True
 
     def save_observation(self):
         # Blit image from spectator camera
@@ -192,7 +239,7 @@ class CarlaDataCollector:
         keys = pygame.key.get_pressed()
         if keys[K_ESCAPE]:
             self.done = True
-        if keys[K_RETURN]:
+        if keys[K_SPACE]:
             self.recording = True
 
     def is_done(self):
@@ -228,8 +275,8 @@ class CarlaDataCollector:
 
 if __name__ == "__main__":
     import argparse
-    argparser = argparse.ArgumentParser(description="Run this script to drive around with WASD/arrow keys," +
-                                                    "saving RGB and semanting segmentation images from the front facing camera to the disk")
+    argparser = argparse.ArgumentParser(description="Run this script to drive around with WASD/arrow keys. " +
+                                                    "Press SPACE to start recording RGB and semanting segmentation images from the front facing camera to the disk")
     argparser.add_argument("--host", default="127.0.0.1", type=str, help="IP of the host server (default: 127.0.0.1)")
     argparser.add_argument("--port", default=2000, type=int, help="TCP port to listen to (default: 2000)")
     argparser.add_argument("--viewer_res", default="1280x720", type=str, help="Window resolution (default: 1280x720)")
@@ -237,6 +284,8 @@ if __name__ == "__main__":
     argparser.add_argument("--output_dir", default="images", type=str, help="Directory to save images to")
     argparser.add_argument("--num_images", default=10000, type=int, help="Number of images to collect")
     argparser.add_argument("--fps", default=30, type=int, help="FPS. Delta time between samples is 1/FPS")
+    argparser.add_argument("--synchronous", type=int, default=True, help="Set this to True when running in a synchronous environment")
+    argparser.add_argument("-start_carla", action="store_true", help="Automatically start CALRA with the given environment settings")
     args = argparser.parse_args()
 
     # Remove existing output directory
@@ -254,7 +303,8 @@ if __name__ == "__main__":
     # Create vehicle and actors for data collecting
     data_collector = CarlaDataCollector(host=args.host, port=args.port,
                                         viewer_res=viewer_res, obs_res=obs_res, fps=args.fps,
-                                        num_images_to_save=args.num_images, output_dir=args.output_dir)
+                                        num_images_to_save=args.num_images, output_dir=args.output_dir,
+                                        synchronous=args.synchronous, start_carla=args.start_carla)
     action = np.zeros(data_collector.action_space.shape[0])
 
     # While there are more images to collect
