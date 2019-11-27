@@ -345,7 +345,7 @@ class CarlaLapEnv(gym.Env):
                     self.world.wait_for_tick(seconds=1.0/self.fps + 0.1)
                     break
                 except:
-                    # Timeouts happen occationally for some reason, however, they seem to be fine to ignore
+                    # Timeouts happen occasionally for some reason, however, they seem to be fine to ignore
                     self.world.tick()
 
         # Get most recent observation and viewer image
