@@ -73,7 +73,7 @@ This is a high-level overview of the method.
 
 - Python 3.6
 - [CARLA 0.9.5](https://github.com/carla-simulator/carla/tree/0.9.5) (may also work with later versions)
-    - Our code expects the CARLA python API to be installed and available through `import carla` (see [this](https://carla.readthedocs.io/en/latest/dev/build_system/#pythonapi))
+    - Our code expects the CARLA python API to be installed and available through `import carla` (see [this](https://carla.readthedocs.io/en/latest/build_system/#pythonapi))
     - We also recommend building a editor-less version of Carla by running the `make package` command in the root directory of CARLA.
     - Note that the map we use, `Town07`, may not be included by default when running `make package`. Add `+MapsToCook=(FilePath="/Game/Carla/Maps/Town07")` to `Unreal/CarlaUE4/Config/DefaultGame.ini` before running `make package` to solve this.
 - [TensorFlow for GPU](https://www.tensorflow.org/) (we have used version 1.13, may work with later versions)
