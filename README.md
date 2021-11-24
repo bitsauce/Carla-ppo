@@ -208,10 +208,6 @@ Here we have summarized the main findings and reasoning behind various design de
 
 ## Reward functions
 
-TODO insert reward figure
-
-TODO insert reward functions
-
 <p align="center">
   <img width="500" src="doc/reward5_formula.png">
 </p>
@@ -219,8 +215,6 @@ TODO insert reward functions
 In our experiments, we have found that the reward function to give the best results
 in terms of creating agents that drive in the center of the lane, and at a constant
 target speed of 20 kmh, was reward 5.
-
-The idea behind this reward function is that... TODO
 
 ## Fail Faster Through Checkpoints
 
